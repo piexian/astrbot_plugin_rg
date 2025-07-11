@@ -13,7 +13,7 @@ import os
     "astrbot_plugin_rg", 
     "原作者zgojin", 
     "群聊左轮手枪游戏插件，支持随机走火事件（全指令可在控制台自定义）", 
-    "1.7.1", 
+    "1.7", 
     "https://github.com/piexian/astrbot_plugin_rg"
 )
 class RevolverGamePlugin(Star):
