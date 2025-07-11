@@ -24,19 +24,12 @@ class RevolverGamePlugin(Star):
         super().__init__(context)
         self.plugin_config = config or {}
         
-    # 指令配置（兼容框架前缀处理，无需手动拼接）
-@filter.event_message_type(filter.EventMessageType.GROUP_MESSAGE)("重载左轮配置", priority=10)  # 高优先级确保优先执行
-@filter.event_message_type(filter.EventMessageType.GROUP_MESSAGE)
-@filter.permission_type(filter.PermissionType.ADMIN)  # 仅管理员可执行
-async def reload_config(self, event: AstrMessageEvent):
-    try:
-        # 重新读取配置（从框架传入的config或配置文件）
-        self.plugin_config = self.context.get_plugin_config(self.name) or {} 
-        # 更新指令配置
+        # 指令配置（兼容框架前缀处理，无需手动拼接）
         self.command_load = self.plugin_config.get("command_load", "装填").strip()
         self.command_shoot = self.plugin_config.get("command_shoot", "开枪").strip()
         self.command_misfire_on = self.plugin_config.get("command_misfire_on", "走火开").strip()
         self.command_misfire_off = self.plugin_config.get("command_misfire_off", "走火关").strip()
+        
         # 功能参数
         self.misfire_probability = float(self.plugin_config.get("misfire_probability", 0.005))
         self.default_misfire_switch = bool(self.plugin_config.get("default_misfire_switch", False))
@@ -77,7 +70,8 @@ async def reload_config(self, event: AstrMessageEvent):
                 "misfire_descriptions": ["突然，左轮手枪走火了！"],
                 "user_reactions": ["{sender}被流弹击中"],
                 "trigger_descriptions": ["枪响了"],
-                "miss_messages": ["是空枪！{sender}安全了"]
+                "miss_messages": ["是空枪！{sender}安全了"],
+                "timeout_messages": ["游戏超时！左轮手枪已被警察收走，如需继续游戏请重新装填子弹"]
             }
             with open(self.texts_file, "w", encoding="utf-8") as f:
                 yaml.dump(self.texts, f, allow_unicode=True)
@@ -106,19 +100,56 @@ async def reload_config(self, event: AstrMessageEvent):
         )
 
     async def _timeout(self, group_id: str):
-        """超时清理游戏状态"""
+        """超时清理游戏状态并发送播报"""
         if group_id in self.group_states:
+            # 获取群名称（如果可能）
+            group_name = f"群{group_id}"
+            bot = getattr(self.context, "bot", None)
+            
+            # 尝试获取群名称
+            if bot and hasattr(bot, "get_group_info"):
+                try:
+                    group_info = await bot.get_group_info(group_id=int(group_id))
+                    group_name = group_info.get("group_name", group_name)
+                except Exception as e:
+                    logger.warning(f"获取群名称失败: {e}")
+            
+            # 清理游戏状态
             del self.group_states[group_id]
-            logger.info(f"群{group_id}游戏超时，已结束")
+            logger.info(f"{group_name}({group_id}) 游戏超时，已结束")
+            
+            # 发送超时播报
+            timeout_msg = random.choice(self.texts.get("timeout_messages", [
+                f"【游戏超时】{group_name} 的左轮游戏已结束！如需继续游戏，请发送 /装填 [1-6]"
+            ]))
+            
+            # 使用框架的消息发送API
+            if hasattr(self.context, "send_message"):
+                try:
+                    await self.context.send_message(
+                        message_type="group",
+                        group_id=group_id,
+                        message=timeout_msg
+                    )
+                except Exception as e:
+                    logger.error(f"超时消息发送失败: {e}")
+            # 备选方案：直接使用bot实例
+            elif bot and hasattr(bot, "send_group_msg"):
+                try:
+                    await bot.send_group_msg(
+                        group_id=int(group_id),
+                        message=timeout_msg
+                    )
+                except Exception as e:
+                    logger.error(f"超时消息发送失败: {e}")
 
     # ------------------------------
     # 指令处理：使用框架推荐的过滤器装饰器
     # ------------------------------
 
-    @filter.event_message_type(filter.EventMessageType.GROUP_MESSAGE)("走火开", priority=1)
-    @filter.event_message_type(filter.EventMessageType.PRIVATE_MESSAGE)  # 仅群聊生效
+    @filter.command("走火开", priority=1)
+    @filter.event_message_type(filter.EventMessageType.GROUP_MESSAGE)  # 仅群聊生效
     async def handle_misfire_on(self, event: AstrMessageEvent):
-        target_cmd = self.command_load
         """开启当前群的走火功能"""
         group_id = event.message_obj.group_id
         self._init_group_switch(group_id)
@@ -126,10 +157,9 @@ async def reload_config(self, event: AstrMessageEvent):
         self._save_misfire_switches()
         yield event.plain_result("走火功能已开启！")
 
-    @filter.event_message_type(filter.EventMessageType.GROUP_MESSAGE)("走火关", priority=1)
-    @filter.event_message_type(filter.EventMessageType.PRIVATE_MESSAGE)
+    @filter.command("走火关", priority=1)
+    @filter.event_message_type(filter.EventMessageType.GROUP_MESSAGE)
     async def handle_misfire_off(self, event: AstrMessageEvent):
-        target_cmd = self.command_load
         """关闭当前群的走火功能"""
         group_id = event.message_obj.group_id
         self._init_group_switch(group_id)
@@ -137,10 +167,9 @@ async def reload_config(self, event: AstrMessageEvent):
         self._save_misfire_switches()
         yield event.plain_result("走火功能已关闭！")
 
-    @filter.event_message_type(filter.EventMessageType.GROUP_MESSAGE)("装填", priority=1)
-    @filter.event_message_type(filter.EventMessageType.PRIVATE_MESSAGE)
+    @filter.command("装填", priority=1)
+    @filter.event_message_type(filter.EventMessageType.GROUP_MESSAGE)
     async def handle_load(self, event: AstrMessageEvent, num: Optional[int] = 1):
-        target_cmd = self.command_load
         """装填子弹（默认1发，支持1-6发）\n指令：/装填 [1-6]"""
         group_id = event.message_obj.group_id
         sender = event.get_sender_name() or "用户"
@@ -167,10 +196,9 @@ async def reload_config(self, event: AstrMessageEvent):
         yield event.plain_result(f"{sender}装填了{num}发子弹，游戏开始！")
         self._start_timer(group_id)
 
-    @filter.event_message_type(filter.EventMessageType.GROUP_MESSAGE)("开枪", priority=1)
-    @filter.event_message_type(filter.EventMessageType.PRIVATE_MESSAGE)
+    @filter.command("开枪", priority=1)
+    @filter.event_message_type(filter.EventMessageType.GROUP_MESSAGE)
     async def handle_shoot(self, event: AstrMessageEvent):
-        target_cmd = self.command_load
         """触发开枪（轮流进行，命中会被禁言）"""
         group_id = event.message_obj.group_id
         sender = event.get_sender_name() or "用户"
@@ -219,10 +247,9 @@ async def reload_config(self, event: AstrMessageEvent):
             del self.group_states[group_id]
             yield event.plain_result("所有子弹已射出，游戏结束！")
 
-    @filter.event_message_type(filter.EventMessageType.PRIVATE_MESSAGE)
+    @filter.event_message_type(filter.EventMessageType.GROUP_MESSAGE)
     @filter.platform_adapter_type(filter.PlatformAdapterType.AIOCQHTTP | filter.PlatformAdapterType.QQOFFICIAL)
     async def handle_random_misfire(self, event: AstrMessageEvent):
-        target_cmd = self.command_load
         """随机走火检测（群消息触发低概率走火）"""
         group_id = event.message_obj.group_id
         sender = event.get_sender_name() or "用户"
@@ -250,25 +277,64 @@ async def reload_config(self, event: AstrMessageEvent):
     async def handle_private(self, event: AstrMessageEvent):
         """私聊提示：游戏仅支持群聊"""
         msg = event.message_str.strip()
-         # 从配置中动态获取当前生效的指令（支持运行时修改）
+        # 从配置中动态获取当前生效的指令（支持运行时修改）
         dynamic_cmds = [
-        self.command_load,          # 装填指令（如“上弹”）
-        self.command_shoot,         # 开枪指令（如“射击”）
-        self.command_misfire_on,    # 走火开指令（如“开启走火”）
-        self.command_misfire_off    # 走火关指令（如“关闭走火”）
-    ]
+            self.command_load,          # 装填指令（如“上弹”）
+            self.command_shoot,         # 开枪指令（如“射击”）
+            self.command_misfire_on,    # 走火开指令（如“开启走火”）
+            self.command_misfire_off    # 走火关指令（如“关闭走火”）
+        ]
+        
         # 检测消息是否匹配任意动态指令（支持带/前缀和参数的情况）
         matched = False
-    for cmd in dynamic_cmds:
-        # 匹配以下情况：
-        # 1. 纯指令（如“上弹”）
-        # 2. 带前缀指令（如“/上弹”）
-        # 3. 带参数的指令（如“上弹 3”或“/上弹 3”）
-        if (msg == cmd 
-            or msg == f"/{cmd}" 
-            or msg.startswith(f"{cmd} ") 
-            or msg.startswith(f"/{cmd} ")):
-            matched = True
-            break
+        for cmd in dynamic_cmds:
+            # 匹配以下情况：
+            # 1. 纯指令（如“上弹”）
+            # 2. 带前缀指令（如“/上弹”）
+            # 3. 带参数的指令（如“上弹 3”或“/上弹 3”）
+            if (msg == cmd 
+                or msg == f"/{cmd}" 
+                or msg.startswith(f"{cmd} ") 
+                or msg.startswith(f"/{cmd} ")):
+                matched = True
+                break
+                
         if matched:
-             yield event.plain_result("该游戏仅支持群聊使用哦~")
+            yield event.plain_result("该游戏仅支持群聊使用哦~")
+
+    @filter.command("重载左轮配置", priority=10)  # 注册指令：/重载左轮配置
+    @filter.event_message_type(filter.EventMessageType.GROUP_MESSAGE)  # 仅群聊生效
+    @filter.permission_type(filter.PermissionType.ADMIN)  # 仅管理员可执行
+    async def reload_config(self, event: AstrMessageEvent):
+        """重新加载插件配置（使指令和参数修改生效）"""
+        try:
+            # 修正配置加载方式
+            if hasattr(self.context, "config") and isinstance(self.context.config, dict):
+                self.plugin_config = self.context.config.get(self.name, {})
+            else:
+                self.plugin_config = {}
+            
+            # 更新指令配置（动态生效）
+            self.command_load = self.plugin_config.get("command_load", "装填").strip()
+            self.command_shoot = self.plugin_config.get("command_shoot", "开枪").strip()
+            self.command_misfire_on = self.plugin_config.get("command_misfire_on", "走火开").strip()
+            self.command_misfire_off = self.plugin_config.get("command_misfire_off", "走火关").strip()
+            
+            # 更新功能参数（动态生效）
+            self.misfire_probability = float(self.plugin_config.get("misfire_probability", 0.005))
+            self.default_misfire_switch = bool(self.plugin_config.get("default_misfire_switch", False))
+            self.ban_time_min = int(self.plugin_config.get("ban_time_range", {}).get("min", 60))
+            self.ban_time_max = int(self.plugin_config.get("ban_time_range", {}).get("max", 3000))
+            self.game_timeout = int(self.plugin_config.get("game_timeout", 180))
+            
+            # 重新加载文本配置（如提示语）
+            self._load_texts()
+            self._load_misfire_switches()
+            
+            # 提示重载成功
+            yield event.plain_result("配置重载成功！所有参数已更新")
+            logger.info("左轮手枪插件配置重载成功")
+            
+        except Exception as e:
+            yield event.plain_result(f"配置重载失败：{str(e)}")
+            logger.error(f"配置重载失败：{e}")
