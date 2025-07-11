@@ -1,4 +1,10 @@
 {
+  "command_prefix": {
+    "description": "插件指令触发前缀",
+    "type": "string",
+    "hint": "用于触发插件指令的前缀符号（如 /、! 等），留空则无需前缀",
+    "default": "/"
+  },
   "misfire_probability": {
     "description": "随机走火概率",
     "type": "float",
