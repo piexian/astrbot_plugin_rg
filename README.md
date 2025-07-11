@@ -1,7 +1,7 @@
 # 左轮手枪游戏插件 README
 
 ## 一、插件概述
-基于 `AstrBot` 的群聊左轮手枪游戏插件，玩家可以在群聊中进行左轮手枪射击游戏，支持随机走火事件。复刻来自https://github.com/zgojin/astrbot_plugin_RG。
+基于 `AstrBot` 的群聊左轮手枪游戏插件，玩家可以在群聊中进行左轮手枪射击游戏，支持随机走火事件。复刻来自https://github.com/zgojin/astrbot_plugin_RG 。
 
 ## 二、插件信息
 - **插件名称**：revolver_game
