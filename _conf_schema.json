@@ -11,6 +11,12 @@
     "hint": "取值范围 0-1，默认0.005（0.5%）",
     "default": 0.005
   },
+  "default_misfire_switch": {  // 新增：全局默认走火开关
+    "description": "新群默认走火功能开关状态",
+    "type": "boolean",
+    "hint": "true=开启，false=关闭，群内可通过指令覆盖",
+    "default": false
+  },
   "ban_time_range": {
     "description": "禁言时间范围（秒）",
     "type": "object",
