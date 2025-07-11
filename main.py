@@ -269,7 +269,7 @@ class RevolverGamePlugin(Star):
             await client.set_group_ban(
                 group_id=int(event.get_group_id()),
                 user_id=user_id,
-                duration=random.randint(60, 3000),
+                duration=300,
                 self_id=int(event.get_self_id())
             )
         except Exception as e:
