@@ -5,13 +5,37 @@
     "hint": "用于触发插件指令的前缀符号（如 /、! 等），留空则无需前缀",
     "default": "/"
   },
+  "command_load": {
+    "description": "装填子弹指令文本",
+    "type": "string",
+    "hint": "触发装填功能的指令（如“装填”）",
+    "default": "装填"
+  },
+  "command_shoot": {
+    "description": "射击指令文本",
+    "type": "string",
+    "hint": "触发射击功能的指令（如“开枪”）",
+    "default": "开枪"
+  },
+  "command_misfire_on": {
+    "description": "开启走火指令文本",
+    "type": "string",
+    "hint": "触发开启走火功能的指令（如“走火开”）",
+    "default": "走火开"
+  },
+  "command_misfire_off": {
+    "description": "关闭走火指令文本",
+    "type": "string",
+    "hint": "触发关闭走火功能的指令（如“走火关”）",
+    "default": "走火关"
+  },
   "misfire_probability": {
     "description": "随机走火概率",
     "type": "float",
     "hint": "取值范围 0-1，默认0.005（0.5%）",
     "default": 0.005
   },
-  "default_misfire_switch": {  // 新增：全局默认走火开关
+  "default_misfire_switch": {
     "description": "新群默认走火功能开关状态",
     "type": "boolean",
     "hint": "true=开启，false=关闭，群内可通过指令覆盖",
