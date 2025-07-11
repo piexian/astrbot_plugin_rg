@@ -25,11 +25,11 @@ class RevolverGamePlugin(Star):
         self.plugin_config = config or {}
         
     # 指令配置（兼容框架前缀处理，无需手动拼接）
-    @filter.event_message_type(filter.EventMessageType.GROUP_MESSAGE)("重载左轮配置", priority=10)  # 高优先级确保优先执行
-    @filter.event_message_type(filter.EventMessageType.GROUP_MESSAGE)
-    @filter.permission_type(filter.PermissionType.ADMIN)  # 仅管理员可执行
-    async def reload_config(self, event: AstrMessageEvent):
-        try:
+@filter.event_message_type(filter.EventMessageType.GROUP_MESSAGE)("重载左轮配置", priority=10)  # 高优先级确保优先执行
+@filter.event_message_type(filter.EventMessageType.GROUP_MESSAGE)
+@filter.permission_type(filter.PermissionType.ADMIN)  # 仅管理员可执行
+async def reload_config(self, event: AstrMessageEvent):
+    try:
         # 重新读取配置（从框架传入的config或配置文件）
         self.plugin_config = self.context.get_plugin_config(self.name) or {} 
         # 更新指令配置
