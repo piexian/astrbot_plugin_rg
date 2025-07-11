@@ -135,7 +135,6 @@ class RevolverGamePlugin(Star):
         """处理走火事件，禁言用户"""
         sender_nickname = event.get_sender_name()
         client = event.bot
-
         misfire_desc = random.choice(self.texts.get('misfire_descriptions', []))
         user_reaction = random.choice(self.texts.get('user_reactions', [])).format(sender_nickname=sender_nickname)
         message = f"{misfire_desc} {user_reaction} 不幸被击中！"
@@ -215,9 +214,7 @@ class RevolverGamePlugin(Star):
         remaining_bullets = sum(group_state['chambers'])
         if remaining_bullets == 0:
             self._remove_timer_job(job_id)
-            group_id = str(event.group_id)  # 这里之前没有检查 group_id 是否存在
-            if group_id in self.group_states:
-                del self.group_states[group_id]
+            del self.group_states[group_id]
             yield event.plain_result(f"{sender_nickname}，弹匣内的所有实弹都已射出，游戏结束。若想继续，可再次装填。")
 
     async def _handle_real_shot(self, event: AstrMessageEvent, group_state, chambers, current_index, sender_nickname, client):
