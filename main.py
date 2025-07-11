@@ -75,7 +75,6 @@ class RevolverGamePlugin(Star):
         # 修改后的方法，添加了context和可变参数
         message_text = event.get_message_str()
         """处理所有消息"""
-        return await self.process_message(event)
         group_id = self._get_group_id(event)
         is_private = not group_id  # 判断是否为私聊
         message_str = event.message_str.strip()
@@ -220,7 +219,7 @@ class RevolverGamePlugin(Star):
             self._remove_timer_job(job_id)
             group_id = str(event.group_id)  # 这里之前没有检查 group_id 是否存在
             if group_id in self.group_states:
-            del self.group_states[group_id]
+                del self.group_states[group_id]
             yield event.plain_result(f"{sender_nickname}，弹匣内的所有实弹都已射出，游戏结束。若想继续，可再次装填。")
 
     async def _handle_real_shot(self, event: AstrMessageEvent, group_state, chambers, current_index, sender_nickname, client):
