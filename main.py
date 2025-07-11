@@ -24,12 +24,19 @@ class RevolverGamePlugin(Star):
         super().__init__(context)
         self.plugin_config = config or {}
         
-        # 指令配置（兼容框架前缀处理，无需手动拼接）
+    # 指令配置（兼容框架前缀处理，无需手动拼接）
+    @filter.event_message_type(filter.EventMessageType.GROUP_MESSAGE)("重载左轮配置", priority=10)  # 高优先级确保优先执行
+    @filter.event_message_type(filter.EventMessageType.GROUP_MESSAGE)
+    @filter.permission_type(filter.PermissionType.ADMIN)  # 仅管理员可执行
+    async def reload_config(self, event: AstrMessageEvent):
+        try:
+        # 重新读取配置（从框架传入的config或配置文件）
+        self.plugin_config = self.context.get_plugin_config(self.name) or {} 
+        # 更新指令配置
         self.command_load = self.plugin_config.get("command_load", "装填").strip()
         self.command_shoot = self.plugin_config.get("command_shoot", "开枪").strip()
         self.command_misfire_on = self.plugin_config.get("command_misfire_on", "走火开").strip()
         self.command_misfire_off = self.plugin_config.get("command_misfire_off", "走火关").strip()
-        
         # 功能参数
         self.misfire_probability = float(self.plugin_config.get("misfire_probability", 0.005))
         self.default_misfire_switch = bool(self.plugin_config.get("default_misfire_switch", False))
@@ -108,9 +115,10 @@ class RevolverGamePlugin(Star):
     # 指令处理：使用框架推荐的过滤器装饰器
     # ------------------------------
 
-    @filter.command("走火开", priority=1)
+    @filter.event_message_type(filter.EventMessageType.GROUP_MESSAGE)("走火开", priority=1)
     @filter.event_message_type(filter.EventMessageType.PRIVATE_MESSAGE)  # 仅群聊生效
     async def handle_misfire_on(self, event: AstrMessageEvent):
+        target_cmd = self.command_load
         """开启当前群的走火功能"""
         group_id = event.message_obj.group_id
         self._init_group_switch(group_id)
@@ -118,9 +126,10 @@ class RevolverGamePlugin(Star):
         self._save_misfire_switches()
         yield event.plain_result("走火功能已开启！")
 
-    @filter.command("走火关", priority=1)
+    @filter.event_message_type(filter.EventMessageType.GROUP_MESSAGE)("走火关", priority=1)
     @filter.event_message_type(filter.EventMessageType.PRIVATE_MESSAGE)
     async def handle_misfire_off(self, event: AstrMessageEvent):
+        target_cmd = self.command_load
         """关闭当前群的走火功能"""
         group_id = event.message_obj.group_id
         self._init_group_switch(group_id)
@@ -128,9 +137,10 @@ class RevolverGamePlugin(Star):
         self._save_misfire_switches()
         yield event.plain_result("走火功能已关闭！")
 
-    @filter.command("装填", priority=1)
+    @filter.event_message_type(filter.EventMessageType.GROUP_MESSAGE)("装填", priority=1)
     @filter.event_message_type(filter.EventMessageType.PRIVATE_MESSAGE)
     async def handle_load(self, event: AstrMessageEvent, num: Optional[int] = 1):
+        target_cmd = self.command_load
         """装填子弹（默认1发，支持1-6发）\n指令：/装填 [1-6]"""
         group_id = event.message_obj.group_id
         sender = event.get_sender_name() or "用户"
@@ -157,9 +167,10 @@ class RevolverGamePlugin(Star):
         yield event.plain_result(f"{sender}装填了{num}发子弹，游戏开始！")
         self._start_timer(group_id)
 
-    @filter.command("开枪", priority=1)
+    @filter.event_message_type(filter.EventMessageType.GROUP_MESSAGE)("开枪", priority=1)
     @filter.event_message_type(filter.EventMessageType.PRIVATE_MESSAGE)
     async def handle_shoot(self, event: AstrMessageEvent):
+        target_cmd = self.command_load
         """触发开枪（轮流进行，命中会被禁言）"""
         group_id = event.message_obj.group_id
         sender = event.get_sender_name() or "用户"
@@ -209,8 +220,9 @@ class RevolverGamePlugin(Star):
             yield event.plain_result("所有子弹已射出，游戏结束！")
 
     @filter.event_message_type(filter.EventMessageType.PRIVATE_MESSAGE)
-    @filter.platform_adapter_type(PlatformAdapterType.AIOCQHTTP)  # 仅aiocqhttp支持走火禁言
+    @filter.platform_adapter_type(filter.PlatformAdapterType.AIOCQHTTP | filter.PlatformAdapterType.QQOFFICIAL)
     async def handle_random_misfire(self, event: AstrMessageEvent):
+        target_cmd = self.command_load
         """随机走火检测（群消息触发低概率走火）"""
         group_id = event.message_obj.group_id
         sender = event.get_sender_name() or "用户"
@@ -237,13 +249,26 @@ class RevolverGamePlugin(Star):
     @filter.event_message_type(filter.EventMessageType.PRIVATE_MESSAGE)
     async def handle_private(self, event: AstrMessageEvent):
         """私聊提示：游戏仅支持群聊"""
-        # 检测是否触发插件指令
-        cmds = ["装填", "开枪", "走火开", "走火关"]
-        if any(event.message_str.strip().startswith(cmd) for cmd in cmds):
-            yield event.plain_result("该游戏仅支持群聊使用哦~")
-
-    async def terminate(self):
-        """插件卸载时清理资源"""
-        if hasattr(self, "scheduler") and self.scheduler.running:
-            self.scheduler.shutdown()
-        logger.info("左轮手枪插件已卸载")
+        msg = event.message_str.strip()
+         # 从配置中动态获取当前生效的指令（支持运行时修改）
+        dynamic_cmds = [
+        self.command_load,          # 装填指令（如“上弹”）
+        self.command_shoot,         # 开枪指令（如“射击”）
+        self.command_misfire_on,    # 走火开指令（如“开启走火”）
+        self.command_misfire_off    # 走火关指令（如“关闭走火”）
+    ]
+        # 检测消息是否匹配任意动态指令（支持带/前缀和参数的情况）
+        matched = False
+    for cmd in dynamic_cmds:
+        # 匹配以下情况：
+        # 1. 纯指令（如“上弹”）
+        # 2. 带前缀指令（如“/上弹”）
+        # 3. 带参数的指令（如“上弹 3”或“/上弹 3”）
+        if (msg == cmd 
+            or msg == f"/{cmd}" 
+            or msg.startswith(f"{cmd} ") 
+            or msg.startswith(f"/{cmd} ")):
+            matched = True
+            break
+        if matched:
+             yield event.plain_result("该游戏仅支持群聊使用哦~")
