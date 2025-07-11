@@ -12,8 +12,8 @@ import os
 @register(
     "astrbot_plugin_rg", 
     "原作者zgojin", 
-    "群聊左轮手枪游戏插件，支持随机走火事件（指令前缀可在控制台修改）", 
-    "1.4.3", 
+    "群聊左轮手枪游戏插件，支持随机走火事件（全指令可在控制台自定义）", 
+    "1.7", 
     "https://github.com/piexian/astrbot_plugin_rg"
 )
 class RevolverGamePlugin(Star):
@@ -22,11 +22,16 @@ class RevolverGamePlugin(Star):
         # 加载插件配置（控制台可修改）
         self.plugin_config = config
         
-        # 核心配置：从控制台配置读取指令前缀（默认值为"/"）
+        # 核心配置：指令前缀和具体指令文本（从控制台读取）
         self.command_prefix = self.plugin_config.get("command_prefix", "/").strip()
+        self.command_load = self.plugin_config.get("command_load", "装填").strip()
+        self.command_shoot = self.plugin_config.get("command_shoot", "开枪").strip()
+        self.command_misfire_on = self.plugin_config.get("command_misfire_on", "走火开").strip()
+        self.command_misfire_off = self.plugin_config.get("command_misfire_off", "走火关").strip()
         
         # 其他配置项
         self.misfire_probability = self.plugin_config.get("misfire_probability", 0.005)
+        self.default_misfire_switch = self.plugin_config.get("default_misfire_switch", False)
         self.ban_time_min = self.plugin_config.get("ban_time_range", {}).get("min", 60)
         self.ban_time_max = self.plugin_config.get("ban_time_range", {}).get("max", 3000)
         self.game_timeout = self.plugin_config.get("game_timeout", 180)
@@ -64,12 +69,12 @@ class RevolverGamePlugin(Star):
         return self._cached_texts
 
     def _load_misfire_switches(self):
-        """加载走火开关状态"""
+        """从配置文件加载走火开关状态"""
         texts = self._load_texts()
         return texts.get('misfire_switches', {})
 
     def _save_misfire_switches(self):
-        """保存走火开关状态"""
+        """保存走火开关状态到文件"""
         texts = self._load_texts()
         if 'misfire_switches' not in texts:
             texts['misfire_switches'] = {}
@@ -77,13 +82,13 @@ class RevolverGamePlugin(Star):
         with open(self.texts_file, 'w', encoding='utf-8') as file:
             yaml.dump(texts, file, allow_unicode=True)
 
+    def _get_full_command(self, command: str) -> str:
+        """生成带前缀的完整指令（如前缀为/，指令为装填，则返回/装填）"""
+        return f"{self.command_prefix}{command}" if self.command_prefix else command
+
     def _is_command(self, message_str: str, command: str) -> bool:
-        """判断消息是否为指定指令（带控制台配置的前缀）"""
-        # 支持无前缀模式（若配置为空）
-        if not self.command_prefix:
-            return message_str.strip() == command
-        full_command = f"{self.command_prefix}{command}"
-        return message_str.strip() == full_command
+        """判断消息是否为指定指令（带前缀）"""
+        return message_str.strip() == self._get_full_command(command)
 
     def _strip_prefix(self, message_str: str) -> str:
         """移除消息中的指令前缀（兼容无前缀模式）"""
@@ -93,7 +98,7 @@ class RevolverGamePlugin(Star):
 
     @filter.event_message_type(EventMessageType.ALL)
     async def on_all_messages(self, event: AstrMessageEvent):
-        """处理所有消息（使用控制台配置的前缀匹配指令）"""
+        """处理所有消息（使用控制台配置的指令）"""
         group_id = self._get_group_id(event)
         is_private = not group_id
         message_str = event.message_str.strip()
@@ -102,10 +107,10 @@ class RevolverGamePlugin(Star):
         if is_private:
             # 生成带当前前缀的有效指令列表（用于私聊判断）
             valid_commands = [
-                f"{self.command_prefix if self.command_prefix else ''}走火开",
-                f"{self.command_prefix if self.command_prefix else ''}走火关",
-                f"{self.command_prefix if self.command_prefix else ''}装填",
-                f"{self.command_prefix if self.command_prefix else ''}开枪"
+                self._get_full_command(self.command_misfire_on),
+                self._get_full_command(self.command_misfire_off),
+                self._get_full_command(self.command_load),
+                self._get_full_command(self.command_shoot)
             ]
             if any(message_str.startswith(cmd) for cmd in valid_commands):
                 yield event.plain_result("该游戏仅限群聊中使用，请在群内游玩。")
@@ -113,22 +118,22 @@ class RevolverGamePlugin(Star):
         
         self._init_group_misfire_switch(group_id)
         
-        # 处理走火开关指令（匹配控制台配置的前缀）
-        if self._is_command(message_str, "走火开"):
+        # 处理走火开关指令
+        if self._is_command(message_str, self.command_misfire_on):
             yield await self._handle_misfire_switch_on(event, group_id)
-        elif self._is_command(message_str, "走火关"):
+        elif self._is_command(message_str, self.command_misfire_off):
             yield await self._handle_misfire_switch_off(event, group_id)
         
-        # 处理装填指令（带参数，如“/装填 3”或“装填 3”<无前缀时>）
-        elif (self.command_prefix and message_str.startswith(f"{self.command_prefix}装填")) or \
-             (not self.command_prefix and message_str.startswith("装填")):
+        # 处理装填指令（带参数）
+        elif (self.command_prefix and message_str.startswith(self._get_full_command(self.command_load))) or \
+             (not self.command_prefix and message_str.startswith(self.command_load)):
             cleaned_msg = self._strip_prefix(message_str)
             num_bullets = self._parse_bullet_count(cleaned_msg)
             async for result in self.handle_load(event, num_bullets):
                 yield result
         
-        # 处理开枪指令
-        elif self._is_command(message_str, "开枪"):
+        # 处理射击指令
+        elif self._is_command(message_str, self.command_shoot):
             async for result in self.handle_shoot(event):
                 yield result
         
@@ -138,17 +143,16 @@ class RevolverGamePlugin(Star):
                 yield result
 
     async def handle_load(self, event: AstrMessageEvent, num_bullets: int = 1):
-        """处理装填指令（内部调用，依赖前缀解析）"""
+        """处理装填指令（使用控制台配置的指令文本）"""
         group_id = self._get_group_id(event)
         if not group_id:
             return
         sender_nickname = event.get_sender_name()
+        full_load_command = self._get_full_command(self.command_load)
         
         if num_bullets is None:
-            # 提示信息自动带上当前前缀
-            prefix_hint = self.command_prefix if self.command_prefix else ""
             yield event.plain_result(
-                f"你输入的装填子弹数量不是有效的整数，请重新输入（例如：{prefix_hint}装填 3）。"
+                f"你输入的装填子弹数量不是有效的整数，请重新输入（例如：{full_load_command} 3）。"
             )
             return
         
@@ -158,9 +162,8 @@ class RevolverGamePlugin(Star):
             return
         
         if num_bullets < 1 or num_bullets > 6:
-            prefix_hint = self.command_prefix if self.command_prefix else ""
             yield event.plain_result(
-                f"{sender_nickname}，装填的实弹数量必须在 1 到 6 之间，请重新输入（例如：{prefix_hint}装填 3）。"
+                f"{sender_nickname}，装填的实弹数量必须在 1 到 6 之间，请重新输入（例如：{full_load_command} 3）。"
             )
             return
         
@@ -178,20 +181,21 @@ class RevolverGamePlugin(Star):
         self.start_timer(event, group_id, self.game_timeout)
 
     async def handle_shoot(self, event: AstrMessageEvent):
-        """处理开枪指令（内部调用，依赖前缀解析）"""
+        """处理射击指令（使用控制台配置的指令文本）"""
         group_id = self._get_group_id(event)
         if not group_id:
             return
         sender_nickname = event.get_sender_name()
         group_state = self.group_states.get(group_id)
         job_id = f"timeout_{group_id}"
+        full_load_command = self._get_full_command(self.command_load)
+        full_shoot_command = self._get_full_command(self.command_shoot)
         
         self._remove_timer_job(job_id)
         
         if not group_state or 'chambers' not in group_state:
-            prefix_hint = self.command_prefix if self.command_prefix else ""
             yield event.plain_result(
-                f"{sender_nickname}，枪里好像没有子弹呢，请先使用 {prefix_hint}装填 指令。"
+                f"{sender_nickname}，枪里好像没有子弹呢，请先使用 {full_load_command} 指令。"
             )
             return
         
@@ -210,9 +214,8 @@ class RevolverGamePlugin(Star):
         if remaining_bullets == 0:
             self._remove_timer_job(job_id)
             del self.group_states[group_id]
-            prefix_hint = self.command_prefix if self.command_prefix else ""
             yield event.plain_result(
-                f"{sender_nickname}，弹匣内的所有实弹都已射出，游戏结束。若想继续，可再次使用 {prefix_hint}装填 指令。"
+                f"{sender_nickname}，弹匣内的所有实弹都已射出，游戏结束。若想继续，可再次使用 {full_load_command} 指令。"
             )
 
     def _get_group_id(self, event: AstrMessageEvent):
@@ -220,23 +223,23 @@ class RevolverGamePlugin(Star):
         return event.message_obj.group_id if hasattr(event.message_obj, "group_id") else None
 
     def _init_group_misfire_switch(self, group_id):
-        """初始化群走火开关"""
+        """初始化群走火开关（使用控制台默认值）"""
         if group_id not in self.group_misfire_switches:
-            self.group_misfire_switches[group_id] = False
+            self.group_misfire_switches[group_id] = self.default_misfire_switch
 
     async def _handle_misfire_switch_on(self, event: AstrMessageEvent, group_id):
-        """开启走火功能"""
+        """开启走火功能（提示使用控制台配置的指令）"""
         self.group_misfire_switches[group_id] = True
         self._save_misfire_switches()
-        prefix_hint = self.command_prefix if self.command_prefix else ""
-        return event.plain_result(f"本群左轮手枪走火功能已开启！使用 {prefix_hint}走火关 可关闭。")
+        full_off_command = self._get_full_command(self.command_misfire_off)
+        return event.plain_result(f"本群左轮手枪走火功能已开启！使用 {full_off_command} 可关闭。")
 
     async def _handle_misfire_switch_off(self, event: AstrMessageEvent, group_id):
-        """关闭走火功能"""
+        """关闭走火功能（提示使用控制台配置的指令）"""
         self.group_misfire_switches[group_id] = False
         self._save_misfire_switches()
-        prefix_hint = self.command_prefix if self.command_prefix else ""
-        return event.plain_result(f"本群左轮手枪走火功能已关闭！使用 {prefix_hint}走火开 可开启。")
+        full_on_command = self._get_full_command(self.command_misfire_on)
+        return event.plain_result(f"本群左轮手枪走火功能已关闭！使用 {full_on_command} 可开启。")
 
     async def _handle_misfire(self, event: AstrMessageEvent, group_id):
         """处理随机走火事件"""
@@ -249,10 +252,10 @@ class RevolverGamePlugin(Star):
         await self._ban_user(event, client, int(event.get_sender_id()))
 
     def _parse_bullet_count(self, message_str: str):
-        """解析子弹数量（兼容带前缀/无前缀的消息）"""
-        # 消息格式："装填 3"（已移除前缀）
+        """解析子弹数量（适配自定义装填指令）"""
+        # 消息格式："装填指令 3"（已移除前缀）
         parts = message_str.split()
-        if len(parts) >= 2 and parts[0] == "装填":
+        if len(parts) >= 2 and parts[0] == self.command_load:
             try:
                 return int(parts[1])
             except ValueError:
