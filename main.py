@@ -264,12 +264,13 @@ class RevolverGamePlugin(Star):
             del self.group_states[group_id]
 
     async def _ban_user(self, event: AstrMessageEvent, client, user_id):
-        """禁言用户"""
+        """禁言用户（随机时长）"""  
+        random_duration = random.randint(60, 3000)  # 生成n到n秒之间的随机整数
         try:
             await client.set_group_ban(
                 group_id=int(event.get_group_id()),
                 user_id=user_id,
-                duration=60,
+                duration=random_duration,
                 self_id=int(event.get_self_id())
             )
         except Exception as e:
