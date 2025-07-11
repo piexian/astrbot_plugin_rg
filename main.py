@@ -11,8 +11,8 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 @register(
     plugin_name="astrbot_plugin_rg",
     author="原作者zgojin",
-    description="群聊左轮手枪游戏插件，支持随机走火事件",
-    version="1.9.0",
+    description="群聊左轮手枪游戏插件，玩家可以在群聊中进行左轮手枪射击游戏，支持随机走火事件",
+    version="1.7.0",
     repo="https://github.com/piexian/astrbot_plugin_rg"
 )
 class RevolverGamePlugin(Star):
