@@ -73,6 +73,9 @@ class RevolverGamePlugin(Star):
     @event_message_type(EventMessageType.ALL)
     async def on_all_messages(self, event: AstrMessageEvent, *args, **kwargs):
         """处理所有消息"""
+        event = kwargs.get('event')  # 从关键字参数中提取event
+        if not event:
+            return  # 没有event参数则直接返回
         group_id = self._get_group_id(event)
         is_private = not group_id  # 判断是否为私聊
         message_str = event.message_str.strip()
