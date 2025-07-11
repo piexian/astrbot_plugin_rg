@@ -4,8 +4,6 @@ import random
 import datetime
 import yaml
 from astrbot.api.all import *
-from astrbot.api import MessageType  # 从官方文档导入正确的MessageType
-from astrbot.api.event import filter, AstrMessageEvent
 from astrbot.api.star import Context, Star, register, StarTools
 from astrbot.api import logger
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
@@ -88,12 +86,14 @@ class RevolverGamePlugin(Star):
         """生成带前缀的指令"""
         return f"{self.command_prefix}{cmd}" if self.command_prefix else cmd
 
-    # 根据官方文档使用MessageType过滤群聊消息
-    @filter(message_type=MessageType.GROUP_MESSAGE)
     async def on_group_message(self, event: AstrMessageEvent):
-        """仅处理群聊消息（符合文档规范）"""
+        """处理群聊消息"""
+        # 检查消息类型是否为群聊
+        if event.message_type != "group":
+            return
+        
         msg = event.message_str.strip()
-        group_id = event.message_obj.group_id  # 群聊消息一定有group_id
+        group_id = event.message_obj.group_id
         sender = event.get_sender_name() or "用户"
         
         # 初始化群走火开关
@@ -183,11 +183,11 @@ class RevolverGamePlugin(Star):
             except Exception as e:
                 logger.error(f"走火禁言失败: {e}")
 
-    # 单独处理私聊消息（可选）
-    @filter(message_type=MessageType.FRIEND_MESSAGE)
     async def on_private_message(self, event: AstrMessageEvent):
         """处理私聊消息，提示仅支持群聊"""
-        yield event.plain_result("该游戏仅支持群聊使用哦~")
+        # 检查消息类型是否为私聊
+        if event.message_type == "private":
+            yield event.plain_result("该游戏仅支持群聊使用哦~")
 
     def _start_timer(self, group_id):
         """启动超时定时器"""
