@@ -71,7 +71,7 @@ class RevolverGamePlugin(Star):
             yaml.dump(texts, file, allow_unicode=True)
 
     @event_message_type(EventMessageType.ALL)
-    async def on_all_messages(self, event: AstrMessageEvent, *args, **kwargs):
+    async def on_all_messages(self, event: AstrMessageEvent):
         """处理所有消息"""
         group_id = self._get_group_id(event)
         is_private = not group_id  # 判断是否为私聊
@@ -111,8 +111,8 @@ class RevolverGamePlugin(Star):
                 yield result
 
     def _get_group_id(self, event: AstrMessageEvent):
-        group_id = event.message_obj.group_id if hasattr(event.message_obj, "group_id") else None
-        return str(group_id) if group_id is not None else None
+        """获取群id"""
+        return event.message_obj.group_id if hasattr(event.message_obj, "group_id") else None
 
     def _init_group_misfire_switch(self, group_id):
         """初始化群走火开关"""
@@ -135,6 +135,7 @@ class RevolverGamePlugin(Star):
         """处理走火事件，禁言用户"""
         sender_nickname = event.get_sender_name()
         client = event.bot
+
         misfire_desc = random.choice(self.texts.get('misfire_descriptions', []))
         user_reaction = random.choice(self.texts.get('user_reactions', [])).format(sender_nickname=sender_nickname)
         message = f"{misfire_desc} {user_reaction} 不幸被击中！"
@@ -254,19 +255,18 @@ class RevolverGamePlugin(Star):
             id=job_id
         )
 
-    async def timeout_callback(self, group_id, *args, **kwargs):
+    async def timeout_callback(self, group_id):
         """定时器超时，移除群游戏状态"""
         if group_id in self.group_states:
             del self.group_states[group_id]
 
-    async def _ban_user(self, event: AstrMessageEvent, client, user_id, *args, **kwargs):
-        """禁言用户（随机时长）"""  
-        random_duration = random.randint(60, 3000)  # 生成n到n秒之间的随机整数
+    async def _ban_user(self, event: AstrMessageEvent, client, user_id):
+        """禁言用户"""
         try:
             await client.set_group_ban(
                 group_id=int(event.get_group_id()),
                 user_id=user_id,
-                duration=random_duration,
+                duration=60,
                 self_id=int(event.get_self_id())
             )
         except Exception as e:
