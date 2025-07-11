@@ -71,8 +71,11 @@ class RevolverGamePlugin(Star):
             yaml.dump(texts, file, allow_unicode=True)
 
     @event_message_type(EventMessageType.ALL)
-    async def on_all_messages(self, event: AstrMessageEvent):
+    async def on_all_messages(self, event: AstrMessageEvent, context, *args, **kwargs):
+        # 修改后的方法，添加了context和可变参数
+        message_text = event.get_message_str()
         """处理所有消息"""
+        return await self.process_message(event)
         group_id = self._get_group_id(event)
         is_private = not group_id  # 判断是否为私聊
         message_str = event.message_str.strip()
