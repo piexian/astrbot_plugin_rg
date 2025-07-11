@@ -9,7 +9,7 @@ import os
 import logging
 
 # 插件目录
-PLUGIN_DIR = os.path.join('data', 'plugins', 'astrbot_plugin_RG')
+PLUGIN_DIR = os.path.join('data', 'plugins', 'astrbot_plugin_rg')
 # 确保插件目录存在
 if not os.path.exists(PLUGIN_DIR):
     os.makedirs(PLUGIN_DIR)
@@ -17,7 +17,7 @@ if not os.path.exists(PLUGIN_DIR):
 # 配置路径
 TEXTS_FILE = os.path.join(PLUGIN_DIR, 'revolver_game_texts.yml')
 
-@register("revolver_game", "长安某", "手枪", "1.3.0")
+@register("revolver_game", "原作者zgojin", "手枪", "1.4.0")
 class RevolverGamePlugin(Star):
     def __init__(self, context: Context):
         super().__init__(context)
@@ -78,7 +78,7 @@ class RevolverGamePlugin(Star):
         message_str = event.message_str.strip()
         
         if is_private:
-            valid_commands = ["走火开", "走火关", "装填", "射爆"]
+            valid_commands = ["走火开", "走火关", "装填", "开枪"]
             if any(message_str.startswith(cmd) for cmd in valid_commands):
                 yield event.plain_result("该游戏仅限群聊中使用，请在群内游玩。")
             # 直接返回，不对私聊消息进行任何其他处理
@@ -106,7 +106,7 @@ class RevolverGamePlugin(Star):
             else:
                 async for result in self.load_bullets(event, num_bullets):
                     yield result
-        elif message_str == "射爆":
+        elif message_str == "开枪":
             async for result in self.shoot(event):
                 yield result
 
