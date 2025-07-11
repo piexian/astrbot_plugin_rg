@@ -14,7 +14,7 @@ from typing import Dict, List, Optional
 
 @register(
     "revolver_game",
-    "原作者zgojin，修正者：你的名字",
+    "原作者：zgojin，修正者：piexian",
     "群聊左轮手枪游戏插件，支持随机走火事件",
     "1.8.0",
     "https://github.com/piexian/astrbot_plugin_rg"
