@@ -6,7 +6,7 @@ import datetime
 import yaml
 import random
 import os
-import logging
+from astrbot.api import logger
 
 
 # 插件目录
@@ -232,7 +232,7 @@ class RevolverGamePlugin(Star):
                 duration=duration
             )
         except Exception as e:
-            logger.error(f"走火禁言失败: {e}")
+                logger.error(f"走火禁言失败: {e}")
 
     def _start_timer(self, group_id):
         """启动超时定时器"""
