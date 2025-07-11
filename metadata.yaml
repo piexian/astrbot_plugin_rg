@@ -1,5 +1,5 @@
 name: astrbot_plugin_rg # 这是你的插件的唯一识别名。
-desc: 基于AstrBot的群聊左轮手枪游戏插件，玩家可以在群聊中进行左轮手枪射击游戏，支持随机走火事件
+desc: 基于AstrBot的群聊左轮手枪游戏插件，玩家可以在群聊中进行左轮手枪射击游戏，支持随机走火事件 # 插件简短描述
 version: v1.4 # 插件版本号。格式：v1.1.1 或者 v1.1
 author: 原作者zgojin # 作者
 repo: https://github.com/piexian/astrbot_plugin_rg # 插件的仓库地址
