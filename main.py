@@ -2,6 +2,7 @@ import asyncio
 from astrbot.api.all import *
 from astrbot.api.event import MessageChain
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
+from astrbot.core.star import StarTools
 import datetime
 import yaml
 import random
