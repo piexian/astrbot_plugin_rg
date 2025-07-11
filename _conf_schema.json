@@ -37,7 +37,7 @@
   },
   "default_misfire_switch": {
     "description": "新群默认走火功能开关状态",
-    "type": "bool",  // 这里修改为 bool
+    "type": "bool",  
     "hint": "true=开启，false=关闭，群内可通过指令覆盖",
     "default": false
   },
