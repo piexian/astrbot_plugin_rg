@@ -1,6 +1,6 @@
 import asyncio
 from astrbot.api.all import *
-from astrbot.api.event import filter, AstrMessageEvent
+from astrbot.api.event import filter, AstrMessageEvent  # 移除 EventMessageType 导入
 from astrbot.api.star import Context, Star, register, StarTools
 from astrbot.api import logger
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
@@ -12,8 +12,8 @@ import os
 @register(
     "astrbot_plugin_rg", 
     "原作者zgojin", 
-    "群聊左轮手枪游戏插件，支持随机走火事件（全指令可在控制台自定义）", 
-    "1.7", 
+    "群聊左轮手枪游戏插件，支持随机走火事件（全指令可自定义）", 
+    "1.7.0", 
     "https://github.com/piexian/astrbot_plugin_rg"
 )
 class RevolverGamePlugin(Star):
@@ -22,7 +22,7 @@ class RevolverGamePlugin(Star):
         # 加载插件配置（控制台可修改）
         self.plugin_config = config
         
-        # 核心配置：指令前缀和具体指令文本（从控制台读取）
+        # 核心配置：指令前缀和具体指令文本
         self.command_prefix = self.plugin_config.get("command_prefix", "/").strip()
         self.command_load = self.plugin_config.get("command_load", "装填").strip()
         self.command_shoot = self.plugin_config.get("command_shoot", "开枪").strip()
@@ -96,7 +96,7 @@ class RevolverGamePlugin(Star):
             return message_str[len(self.command_prefix):].strip()
         return message_str
 
-    @filter()  # 移除EventMessageType，使用默认过滤所有消息
+    @filter()  # 移除 EventMessageType.ALL，使用默认过滤（监听所有消息）
     async def on_all_messages(self, event: AstrMessageEvent):
         """处理所有消息（使用控制台配置的指令）"""
         group_id = self._get_group_id(event)
