@@ -10,9 +10,11 @@ import yaml
 import random
 import os
 from typing import Dict, List, Optional
+import datetime
+from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
 
-@register("revolver_game","原作者：zgojin，修正者：piexian","群聊左轮手枪游戏插件，支持随机走火事件","1.7.0","https://github.com/piexian/astrbot_plugin_rg")
+@register("revolver_game","原作者：zgojin，修正者：piexian","群聊左轮手枪游戏插件，支持随机走火事件","1.7.1","https://github.com/piexian/astrbot_plugin_rgrg")
 class RevolverGamePlugin(Star):
     def __init__(self, context: Context, config: Dict = None):
         super().__init__(context)
@@ -39,7 +41,7 @@ class RevolverGamePlugin(Star):
         # 数据目录（符合文档规范：存储在data目录下）
         self.plugin_data_dir = StarTools.get_data_dir() / "revolver_game"
         self.plugin_data_dir.mkdir(parents=True, exist_ok=True)
-        self.texts_file = self.plugin_data_dir / "texts.yml"
+        self.texts_file = self.plugin_data_dir / "terevolver_game_text.yml"
         
         # 加载配置
         self._load_texts()
@@ -107,7 +109,7 @@ class RevolverGamePlugin(Star):
                     group_name = group_info.get("group_name", group_name)
                 except Exception as e:
                     logger.warning(f"获取群名称失败: {e}")
-            
+                    group_name = group_id
             # 清理游戏状态
             del self.group_states[group_id]
             logger.info(f"{group_name}({group_id}) 游戏超时，已结束")
@@ -118,25 +120,10 @@ class RevolverGamePlugin(Star):
             ]))
             
             # 使用框架的消息发送API
-            if hasattr(self.context, "send_message"):
-                try:
-                    await self.context.send_message(
-                        message_type="group",
-                        group_id=group_id,
-                        message=timeout_msg
-                    )
-                except Exception as e:
-                    logger.error(f"超时消息发送失败: {e}")
-            # 备选方案：直接使用bot实例
-            elif bot and hasattr(bot, "send_group_msg"):
-                try:
-                    await bot.send_group_msg(
-                        group_id=int(group_id),
-                        message=timeout_msg
-                    )
-                except Exception as e:
-                    logger.error(f"超时消息发送失败: {e}")
-
+            try:
+                await self.bot.send_group_msg(group_id=group_id, message=timeout_msg)
+            except Exception as e:
+                logger.error(f"超时消息发送失败: {e}")
     # ------------------------------
     # 指令处理：使用框架推荐的过滤器装饰器
     # ------------------------------
