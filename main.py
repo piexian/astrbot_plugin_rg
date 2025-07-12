@@ -12,13 +12,7 @@ import os
 from typing import Dict, List, Optional
 
 
-@register(
-    "revolver_game",
-    "原作者：zgojin，修正者：piexian",
-    "群聊左轮手枪游戏插件，支持随机走火事件",
-    "1.7.0",
-    "https://github.com/piexian/astrbot_plugin_rg"
-)
+@register("revolver_game","原作者：zgojin，修正者：piexian","群聊左轮手枪游戏插件，支持随机走火事件","1.7.0","https://github.com/piexian/astrbot_plugin_rg")
 class RevolverGamePlugin(Star):
     def __init__(self, context: Context, config: Dict = None):
         super().__init__(context)
