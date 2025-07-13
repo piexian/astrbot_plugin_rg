@@ -1,27 +1,27 @@
 import asyncio
-from astrbot.api.event import filter, AstrMessageEvent, MessageEventResult
+from astrbot.api.event import filter, AstrMessageEvent
 from astrbot.api.star import Context, Star, register
 from astrbot.api import logger
 from astrbot.core.star import StarTools
-from astrbot.core.platform.sources.aiocqhttp.aiocqhttp_message_event import AiocqhttpMessageEvent
 import datetime
 import yaml
 import random
 import os
-from typing import Dict, List, Optional
+import json
+from typing import Optional, Dict, List, Union, Any
 import datetime
+import astrbot.api.message_components as Comp
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
-from astrbot.config import AstrBotConfig
-
+from astrbot.core.config import AstrBotConfig
 
 @register("revolver_game","原作者：zgojin，修正者：piexian","群聊左轮手枪游戏插件，支持随机走火事件","1.7.3","https://github.com/piexian/astrbot_plugin_rg")
 class RevolverGamePlugin(Star):
-    def __init__(self, context: Context, config: AstrBotConfig):
+    def __init__(self, context: Context, config: dict):
         super().__init__(context)
         self.config = config
-        print(self.config)
+        self.plugin_config = config.get('plugin_config', {})
         
-        # 指令配置
+        # 指令配置 - 使用get方法并提供默认值
         self.command_load = self.plugin_config.get("command_load", "装填").strip()
         self.command_shoot = self.plugin_config.get("command_shoot", "开枪").strip()
         self.command_misfire_on = self.plugin_config.get("command_misfire_on", "走火开").strip()
@@ -30,8 +30,10 @@ class RevolverGamePlugin(Star):
         # 功能参数
         self.misfire_probability = float(self.plugin_config.get("misfire_probability", 0.005))
         self.default_misfire_switch = bool(self.plugin_config.get("default_misfire_switch", False))
-        self.ban_time_min = int(self.plugin_config.get("ban_time_range", {}).get("min", 60))
-        self.ban_time_max = int(self.plugin_config.get("ban_time_range", {}).get("max", 3000))
+        
+        ban_time_range = self.plugin_config.get("ban_time_range", {})
+        self.ban_time_min = int(ban_time_range.get("min", 60))
+        self.ban_time_max = int(ban_time_range.get("max", 3000))
         self.game_timeout = int(self.plugin_config.get("game_timeout", 180))
         
         # 游戏状态（键：群ID，值：游戏数据）
@@ -40,9 +42,9 @@ class RevolverGamePlugin(Star):
         self.texts: Dict = {}  # 提示文本
         
         # 数据目录（符合文档规范：存储在data目录下）
-        self.plugin_data_dir = StarTools.get_data_dir() / "revolver_game"
+        self.plugin_data_dir = StarTools.get_data_dir() / "plugin_data" / "astrbot_plugin_rg"
         self.plugin_data_dir.mkdir(parents=True, exist_ok=True)
-        self.texts_file = self.plugin_data_dir / "terevolver_game_text.yml"
+        self.texts_file = self.plugin_data_dir / "revolver_game_texts.yml"
         
         # 加载配置
         self._load_texts()
@@ -53,18 +55,57 @@ class RevolverGamePlugin(Star):
         if not self.scheduler.running:
             self.scheduler.start()
     def _load_texts(self):
-        """加载游戏文本，多编码尝试"""
+        """加载游戏文本，如果不存在则创建默认文本"""
         if not hasattr(self, '_cached_texts'):
-            encodings = ['utf-8', 'gbk', 'gb2312']
-            for encoding in encodings:
-                try:
-                    with open(TEXTS_FILE, 'r', encoding=encoding) as file:
-                        self._cached_texts = yaml.safe_load(file)
-                        break
-                except UnicodeDecodeError:
-                    continue
+            # 默认文本
+            default_texts = {
+                "misfire_switches": {},
+                "misfire_descriptions": [
+                    "突然，左轮手枪走火了！",
+                    "意外发生了！手枪突然走火！",
+                    "砰！手枪竟然走火了！"
+                ],
+                "user_reactions": [
+                    "{sender}被击中了，痛苦地倒下了",
+                    "{sender}中弹了，表情非常痛苦",
+                    "可怜的{sender}被子弹击中了"
+                ],
+                "trigger_descriptions": [
+                    "砰！枪响了",
+                    "突然一声枪响",
+                    "命中目标"
+                ],
+                "miss_messages": [
+                    "是空枪！{sender}安全了",
+                    "咔嚓，{sender}运气不错",
+                    "{sender}逃过一劫"
+                ]
+            }
+
+            if not self.texts_file.exists():
+                # 如果文件不存在，创建默认文本文件
+                self.texts_file.parent.mkdir(parents=True, exist_ok=True)
+                with open(self.texts_file, 'w', encoding='utf-8') as f:
+                    yaml.dump(default_texts, f, allow_unicode=True)
+                self._cached_texts = default_texts
             else:
-                self._cached_texts = {}
+                # 如果文件存在，尝试读取
+                encodings = ['utf-8', 'gbk', 'gb2312']
+                for encoding in encodings:
+                    try:
+                        with open(self.texts_file, 'r', encoding=encoding) as f:
+                            self._cached_texts = yaml.safe_load(f) or default_texts
+                            break
+                    except UnicodeDecodeError:
+                        continue
+                    except Exception as e:
+                        logger.error(f"读取文本文件失败: {e}")
+                        self._cached_texts = default_texts
+                        break
+                else:
+                    self._cached_texts = default_texts
+            
+            self.texts = self._cached_texts
         return self._cached_texts
         
     def _load_misfire_switches(self):
@@ -152,7 +193,8 @@ class RevolverGamePlugin(Star):
         
         # 校验子弹数量
         try:
-            num = int(num) if num else 1
+            args = event.get_args()
+            num = int(args[0]) if args else 1
             num = max(1, min(6, num))  # 限制1-6发
         except (ValueError, TypeError):
             yield event.plain_result("请输入正确格式：/装填 [1-6]（1-6之间的数字）")
