@@ -14,7 +14,7 @@ import astrbot.api.message_components as Comp
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from astrbot.core.config import AstrBotConfig
 
-@register("revolver_game","原作者：zgojin，修正者：piexian","群聊左轮手枪游戏插件，支持随机走火事件","1.7.3","https://github.com/piexian/astrbot_plugin_rg")
+@register("revolver_game","原作者：zgojin，修正者：piexian","群聊左轮手枪游戏插件，支持随机走火事件","1.7.4","https://github.com/piexian/astrbot_plugin_rg")
 class RevolverGamePlugin(Star):
     def __init__(self, context: Context, config: dict):
         super().__init__(context)
