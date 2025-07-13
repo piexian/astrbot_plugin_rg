@@ -14,13 +14,14 @@ import datetime
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
 
-@register("revolver_game","原作者：zgojin，修正者：piexian","群聊左轮手枪游戏插件，支持随机走火事件","1.7.1","https://github.com/piexian/astrbot_plugin_rg")
+@register("revolver_game","原作者：zgojin，修正者：piexian","群聊左轮手枪游戏插件，支持随机走火事件","1.7.2","https://github.com/piexian/astrbot_plugin_rg")
 class RevolverGamePlugin(Star):
-    def __init__(self, context: Context, config: Dict = None):
+    def __init__(self, context: Context, config: AstrBotConfig)
         super().__init__(context)
-        self.plugin_config = config or {}
+        self.config = config
+        print(self.config)
         
-        # 指令配置（兼容框架前缀处理，无需手动拼接）
+        # 指令配置
         self.command_load = self.plugin_config.get("command_load", "装填").strip()
         self.command_shoot = self.plugin_config.get("command_shoot", "开枪").strip()
         self.command_misfire_on = self.plugin_config.get("command_misfire_on", "走火开").strip()
@@ -47,31 +48,25 @@ class RevolverGamePlugin(Star):
         self._load_texts()
         self._load_misfire_switches()
         
-        # 调度器（优先使用框架内置调度器）
+        # 调度器
         self.scheduler = getattr(context, "scheduler", None) or AsyncIOScheduler()
         if not self.scheduler.running:
             self.scheduler.start()
-
     def _load_texts(self):
-        """加载提示文本（容错处理）"""
-        if self.texts_file.exists():
-            try:
-                with open(self.texts_file, "r", encoding="utf-8") as f:
-                    self.texts = yaml.safe_load(f) or {}
-            except Exception as e:
-                logger.error(f"加载文本失败: {e}")
-                self.texts = {}
-        else:
-            self.texts = {
-                "misfire_descriptions": ["突然，左轮手枪走火了！"],
-                "user_reactions": ["{sender}被流弹击中"],
-                "trigger_descriptions": ["枪响了"],
-                "miss_messages": ["是空枪！{sender}安全了"],
-                "timeout_messages": ["游戏超时！左轮手枪已被警察收走，如需继续游戏请重新装填子弹"]
-            }
-            with open(self.texts_file, "w", encoding="utf-8") as f:
-                yaml.dump(self.texts, f, allow_unicode=True)
-
+        """加载游戏文本，多编码尝试"""
+        if not hasattr(self, '_cached_texts'):
+            encodings = ['utf-8', 'gbk', 'gb2312']
+            for encoding in encodings:
+                try:
+                    with open(TEXTS_FILE, 'r', encoding=encoding) as file:
+                        self._cached_texts = yaml.safe_load(file)
+                        break
+                except UnicodeDecodeError:
+                    continue
+            else:
+                self._cached_texts = {}
+        return self._cached_texts
+        
     def _load_misfire_switches(self):
         """加载走火开关状态（持久化）"""
         self.group_misfire_switches = self.texts.get("misfire_switches", {})
@@ -125,7 +120,7 @@ class RevolverGamePlugin(Star):
             except Exception as e:
                 logger.error(f"超时消息发送失败: {e}")
     # ------------------------------
-    # 指令处理：使用框架推荐的过滤器装饰器
+    # 指令处理
     # ------------------------------
 
     @filter.command("走火开", priority=1)
@@ -148,7 +143,7 @@ class RevolverGamePlugin(Star):
         self._save_misfire_switches()
         yield event.plain_result("走火功能已关闭！")
 
-    @filter.command("装填", priority=1)
+    @filter.command("command_load", priority=1)
     @filter.event_message_type(filter.EventMessageType.GROUP_MESSAGE)
     async def handle_load(self, event: AstrMessageEvent, num: Optional[int] = 1):
         """装填子弹（默认1发，支持1-6发）\n指令：/装填 [1-6]"""
