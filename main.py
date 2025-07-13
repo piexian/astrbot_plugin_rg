@@ -14,18 +14,12 @@ import astrbot.api.message_components as Comp
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from astrbot.core.config import AstrBotConfig
 
-@register("revolver_game","原作者：zgojin，修正者：piexian","群聊左轮手枪游戏插件，支持随机走火事件","1.7.5","https://github.com/piexian/astrbot_plugin_rg")
+@register("revolver_game","原作者：zgojin，修正者：piexian","群聊左轮手枪游戏插件，支持随机走火事件","1.7.5","https://github.com/piexian/astrbot_plugin_rg") 
 class RevolverGamePlugin(Star):
     def __init__(self, context: Context, config: AstrBotConfig):
         super().__init__(context)
         self.config = config
         self.plugin_config = config.get('plugin_config', {})
-        
-        # 从配置获取指令设置
-        self.command_load = self.plugin_config.get("command_load", "装填")
-        self.command_shoot = self.plugin_config.get("command_shoot", "开枪")
-        self.command_misfire_on = self.plugin_config.get("command_misfire_on", "走火开")
-        self.command_misfire_off = self.plugin_config.get("command_misfire_off", "走火关")
         
         # 从配置获取功能参数
         self.misfire_probability = float(self.plugin_config.get("misfire_probability", 0.005))
@@ -168,42 +162,20 @@ class RevolverGamePlugin(Star):
     # 指令处理
     # ------------------------------
 
+    # 修改指令装饰器,使用固定指令 
     @filter.command("装填", alias={"load"})
     @filter.event_message_type(filter.EventMessageType.GROUP_MESSAGE)
-    async def handle_load(self, event: AstrMessageEvent, *args, **kwargs):
+    async def handle_load(self, event: AstrMessageEvent):
         """装填子弹\n用法: /装填 [1-6]"""
         try:
+            # 获取消息内容并解析参数
+            message = event.message_str.strip()
+            parts = message.split()
             # 尝试获取数量参数
-            num = int(args[0]) if args else 1
+            num = int(parts[1]) if len(parts) > 1 else 1
         except (IndexError, ValueError):
             num = 1
-        
-        async for response in self._handle_load(event, num):
-            yield response
-
-    @filter.command("开枪", alias={"shoot"})
-    @filter.event_message_type(filter.EventMessageType.GROUP_MESSAGE)
-    async def handle_shoot(self, event: AstrMessageEvent, *args, **kwargs):
-        """开枪指令\n用法: /开枪"""
-        async for response in self._handle_shoot(event):
-            yield response
-
-    @filter.command("走火开", alias={"misfire_on"})
-    @filter.event_message_type(filter.EventMessageType.GROUP_MESSAGE)
-    async def handle_misfire_on(self, event: AstrMessageEvent, *args, **kwargs):
-        """开启走火功能\n用法: /走火开"""
-        async for response in self._handle_misfire_on(event):
-            yield response
-
-    @filter.command("走火关", alias={"misfire_off"})
-    @filter.event_message_type(filter.EventMessageType.GROUP_MESSAGE)
-    async def handle_misfire_off(self, event: AstrMessageEvent, *args, **kwargs):
-        """关闭走火功能\n用法: /走火关"""
-        async for response in self._handle_misfire_off(event):
-            yield response
-
-    async def _handle_load(self, event: AstrMessageEvent, num: int = 1):
-        """装填子弹\n用法: /{command} [1-6]"""
+            
         group_id = event.message_obj.group_id
         sender = event.get_sender_name() or "用户"
         
@@ -224,8 +196,10 @@ class RevolverGamePlugin(Star):
         yield event.plain_result(f"{sender}装填了{num}发子弹，游戏开始！")
         self._start_timer(group_id)
 
-    async def _handle_shoot(self, event: AstrMessageEvent):
-        """开枪指令\n用法: /{command}"""
+    @filter.command("开枪", alias={"shoot"})
+    @filter.event_message_type(filter.EventMessageType.GROUP_MESSAGE)
+    async def handle_shoot(self, event: AstrMessageEvent):
+        """开枪指令\n用法: /开枪"""
         group_id = event.message_obj.group_id
         sender = event.get_sender_name() or "用户"
         
@@ -328,10 +302,6 @@ class RevolverGamePlugin(Star):
                 # 更新全局配置
                 bot_config = self.context.get_config()
                 bot_config['astrbot_plugin_rg'] = {
-                    'command_load': self.command_load,
-                    'command_shoot': self.command_shoot,
-                    'command_misfire_on': self.command_misfire_on,
-                    'command_misfire_off': self.command_misfire_off,
                     'misfire_probability': self.misfire_probability,
                     'default_misfire_switch': self.default_misfire_switch,
                     'ban_time_range': {
@@ -340,32 +310,7 @@ class RevolverGamePlugin(Star):
                     },
                     'game_timeout': self.game_timeout
                 }
-                # 保存配置
                 bot_config.save_config()
                 logger.info("[RevolverGame] 配置已保存")
             except Exception as e:
                 logger.error(f"[RevolverGame] 保存配置失败: {e}")
-
-    def _save_plugin_config(self):
-        """保存插件配置到全局配置"""
-        try:
-            bot_config = self.context.get_config()
-            bot_config['astrbot_plugin_rg'] = {
-                'command_load': self.command_load,
-                'command_shoot': self.command_shoot,
-                'misfire_on': self.command_misfire_on,
-                'misfire_off': self.command_misfire_off,
-                'misfire_probability': self.misfire_probability,
-                'default_misfire_switch': self.default_misfire_switch,
-                'ban_time_range': {
-                    'min': self.ban_time_min,
-                    'max': self.ban_time_max
-                },
-                'game_timeout': self.game_timeout
-            }
-            bot_config.save_config()
-            logger.info("[RevolverGame] 配置已保存")
-            return True
-        except Exception as e:
-            logger.error(f"[RevolverGame] 保存配置失败: {e}")
-            return False
