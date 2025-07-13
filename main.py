@@ -14,20 +14,20 @@ import astrbot.api.message_components as Comp
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from astrbot.core.config import AstrBotConfig
 
-@register("revolver_game","原作者：zgojin，修正者：piexian","群聊左轮手枪游戏插件，支持随机走火事件","1.7.4","https://github.com/piexian/astrbot_plugin_rg")
+@register("revolver_game","原作者：zgojin，修正者：piexian","群聊左轮手枪游戏插件，支持随机走火事件","1.7.5","https://github.com/piexian/astrbot_plugin_rg")
 class RevolverGamePlugin(Star):
-    def __init__(self, context: Context, config: dict):
+    def __init__(self, context: Context, config: AstrBotConfig):
         super().__init__(context)
         self.config = config
         self.plugin_config = config.get('plugin_config', {})
         
-        # 指令配置 - 使用get方法并提供默认值
-        self.command_load = self.plugin_config.get("command_load", "装填").strip()
-        self.command_shoot = self.plugin_config.get("command_shoot", "开枪").strip()
-        self.command_misfire_on = self.plugin_config.get("command_misfire_on", "走火开").strip()
-        self.command_misfire_off = self.plugin_config.get("command_misfire_off", "走火关").strip()
+        # 从配置获取指令设置
+        self.command_load = self.plugin_config.get("command_load", "装填")
+        self.command_shoot = self.plugin_config.get("command_shoot", "开枪")
+        self.command_misfire_on = self.plugin_config.get("command_misfire_on", "走火开")
+        self.command_misfire_off = self.plugin_config.get("command_misfire_off", "走火关")
         
-        # 功能参数
+        # 从配置获取功能参数
         self.misfire_probability = float(self.plugin_config.get("misfire_probability", 0.005))
         self.default_misfire_switch = bool(self.plugin_config.get("default_misfire_switch", False))
         
@@ -54,6 +54,10 @@ class RevolverGamePlugin(Star):
         self.scheduler = getattr(context, "scheduler", None) or AsyncIOScheduler()
         if not self.scheduler.running:
             self.scheduler.start()
+        
+        # 注册配置保存任务
+        asyncio.create_task(self._auto_save_config())
+
     def _load_texts(self):
         """加载游戏文本，如果不存在则创建默认文本"""
         if not hasattr(self, '_cached_texts'):
@@ -164,48 +168,54 @@ class RevolverGamePlugin(Star):
     # 指令处理
     # ------------------------------
 
-    @filter.command("command_misfire_on", priority=1)
-    @filter.event_message_type(filter.EventMessageType.GROUP_MESSAGE)  # 仅群聊生效
-    async def handle_misfire_on(self, event: AstrMessageEvent):
-        """开启当前群的走火功能"""
-        group_id = event.message_obj.group_id
-        self._init_group_switch(group_id)
-        self.group_misfire_switches[group_id] = True
-        self._save_misfire_switches()
-        yield event.plain_result("走火功能已开启！")
-
-    @filter.command("command_misfire_off", priority=1)
+    @filter.command("装填", alias={"load"})
     @filter.event_message_type(filter.EventMessageType.GROUP_MESSAGE)
-    async def handle_misfire_off(self, event: AstrMessageEvent):
-        """关闭当前群的走火功能"""
-        group_id = event.message_obj.group_id
-        self._init_group_switch(group_id)
-        self.group_misfire_switches[group_id] = False
-        self._save_misfire_switches()
-        yield event.plain_result("走火功能已关闭！")
+    async def handle_load(self, event: AstrMessageEvent, *args, **kwargs):
+        """装填子弹\n用法: /装填 [1-6]"""
+        try:
+            # 尝试获取数量参数
+            num = int(args[0]) if args else 1
+        except (IndexError, ValueError):
+            num = 1
+        
+        async for response in self._handle_load(event, num):
+            yield response
 
-    @filter.command("command_load", priority=1)
+    @filter.command("开枪", alias={"shoot"})
     @filter.event_message_type(filter.EventMessageType.GROUP_MESSAGE)
-    async def handle_load(self, event: AstrMessageEvent ):
-        """装填子弹（默认1发，支持1-6发）\n指令：/装填 [1-6]"""
+    async def handle_shoot(self, event: AstrMessageEvent, *args, **kwargs):
+        """开枪指令\n用法: /开枪"""
+        async for response in self._handle_shoot(event):
+            yield response
+
+    @filter.command("走火开", alias={"misfire_on"})
+    @filter.event_message_type(filter.EventMessageType.GROUP_MESSAGE)
+    async def handle_misfire_on(self, event: AstrMessageEvent, *args, **kwargs):
+        """开启走火功能\n用法: /走火开"""
+        async for response in self._handle_misfire_on(event):
+            yield response
+
+    @filter.command("走火关", alias={"misfire_off"})
+    @filter.event_message_type(filter.EventMessageType.GROUP_MESSAGE)
+    async def handle_misfire_off(self, event: AstrMessageEvent, *args, **kwargs):
+        """关闭走火功能\n用法: /走火关"""
+        async for response in self._handle_misfire_off(event):
+            yield response
+
+    async def _handle_load(self, event: AstrMessageEvent, num: int = 1):
+        """装填子弹\n用法: /{command} [1-6]"""
         group_id = event.message_obj.group_id
         sender = event.get_sender_name() or "用户"
         
-        # 校验子弹数量
-        try:
-            args = event.get_args()
-            num = int(args[0]) if args else 1
-            num = max(1, min(6, num))  # 限制1-6发
-        except (ValueError, TypeError):
-            yield event.plain_result("请输入正确格式：/装填 [1-6]（1-6之间的数字）")
-            return
+        # 限制子弹数量在1-6之间
+        num = max(1, min(6, num))
         
-        # 检查游戏状态（是否已装填）
+        # 检查游戏状态
         if group_id in self.group_states and any(self.group_states[group_id].get("chambers", [])):
             yield event.plain_result("当前游戏未结束，不能重新装填哦~")
             return
         
-        # 初始化弹仓（6个位置，随机放入num发子弹）
+        # 初始化弹仓
         chambers = [False] * 6
         for pos in random.sample(range(6), num):
             chambers[pos] = True
@@ -214,10 +224,8 @@ class RevolverGamePlugin(Star):
         yield event.plain_result(f"{sender}装填了{num}发子弹，游戏开始！")
         self._start_timer(group_id)
 
-    @filter.command("command_shoot", priority=1)
-    @filter.event_message_type(filter.EventMessageType.GROUP_MESSAGE)
-    async def handle_shoot(self, event: AstrMessageEvent):
-        """触发开枪（轮流进行，命中会被禁言）"""
+    async def _handle_shoot(self, event: AstrMessageEvent):
+        """开枪指令\n用法: /{command}"""
         group_id = event.message_obj.group_id
         sender = event.get_sender_name() or "用户"
         
@@ -267,8 +275,13 @@ class RevolverGamePlugin(Star):
 
     @filter.event_message_type(filter.EventMessageType.GROUP_MESSAGE)
     @filter.platform_adapter_type(filter.PlatformAdapterType.AIOCQHTTP | filter.PlatformAdapterType.QQOFFICIAL)
-    async def handle_random_misfire(self, event: AstrMessageEvent):
+    async def handle_random_misfire(self, event: AstrMessageEvent, *args, **kwargs):
         """随机走火检测（群消息触发低概率走火）"""
+        async for response in self._handle_random_misfire(event):
+            yield response
+
+    async def _handle_random_misfire(self, event: AstrMessageEvent):
+        """随机走火检测的具体实现"""
         group_id = event.message_obj.group_id
         sender = event.get_sender_name() or "用户"
         self._init_group_switch(group_id)
@@ -290,3 +303,69 @@ class RevolverGamePlugin(Star):
                     )
                 except Exception as e:
                     logger.error(f"走火禁言失败: {e}")
+
+    async def _handle_misfire_on(self, event: AstrMessageEvent):
+        """开启走火功能\n用法: /{command}"""
+        group_id = event.message_obj.group_id
+        self._init_group_switch(group_id)
+        self.group_misfire_switches[group_id] = True
+        self._save_misfire_switches()
+        yield event.plain_result("走火功能已开启！")
+
+    async def _handle_misfire_off(self, event: AstrMessageEvent):
+        """关闭走火功能\n用法: /{command}"""
+        group_id = event.message_obj.group_id
+        self._init_group_switch(group_id)
+        self.group_misfire_switches[group_id] = False
+        self._save_misfire_switches()
+        yield event.plain_result("走火功能已关闭！")
+
+    async def _auto_save_config(self):
+        """定期保存配置"""
+        while True:
+            await asyncio.sleep(300)  # 每5分钟保存一次
+            try:
+                # 更新全局配置
+                bot_config = self.context.get_config()
+                bot_config['astrbot_plugin_rg'] = {
+                    'command_load': self.command_load,
+                    'command_shoot': self.command_shoot,
+                    'command_misfire_on': self.command_misfire_on,
+                    'command_misfire_off': self.command_misfire_off,
+                    'misfire_probability': self.misfire_probability,
+                    'default_misfire_switch': self.default_misfire_switch,
+                    'ban_time_range': {
+                        'min': self.ban_time_min,
+                        'max': self.ban_time_max
+                    },
+                    'game_timeout': self.game_timeout
+                }
+                # 保存配置
+                bot_config.save_config()
+                logger.info("[RevolverGame] 配置已保存")
+            except Exception as e:
+                logger.error(f"[RevolverGame] 保存配置失败: {e}")
+
+    def _save_plugin_config(self):
+        """保存插件配置到全局配置"""
+        try:
+            bot_config = self.context.get_config()
+            bot_config['astrbot_plugin_rg'] = {
+                'command_load': self.command_load,
+                'command_shoot': self.command_shoot,
+                'misfire_on': self.command_misfire_on,
+                'misfire_off': self.command_misfire_off,
+                'misfire_probability': self.misfire_probability,
+                'default_misfire_switch': self.default_misfire_switch,
+                'ban_time_range': {
+                    'min': self.ban_time_min,
+                    'max': self.ban_time_max
+                },
+                'game_timeout': self.game_timeout
+            }
+            bot_config.save_config()
+            logger.info("[RevolverGame] 配置已保存")
+            return True
+        except Exception as e:
+            logger.error(f"[RevolverGame] 保存配置失败: {e}")
+            return False
