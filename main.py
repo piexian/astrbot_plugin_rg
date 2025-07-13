@@ -14,7 +14,7 @@ import datetime
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
 
-@register("revolver_game","原作者：zgojin，修正者：piexian","群聊左轮手枪游戏插件，支持随机走火事件","1.7.2","https://github.com/piexian/astrbot_plugin_rg")
+@register("revolver_game","原作者：zgojin，修正者：piexian","群聊左轮手枪游戏插件，支持随机走火事件","1.7.3","https://github.com/piexian/astrbot_plugin_rg")
 class RevolverGamePlugin(Star):
     def __init__(self, context: Context, config: AstrBotConfig)
         super().__init__(context)
@@ -123,7 +123,7 @@ class RevolverGamePlugin(Star):
     # 指令处理
     # ------------------------------
 
-    @filter.command("走火开", priority=1)
+    @filter.command("command_misfire_on", priority=1)
     @filter.event_message_type(filter.EventMessageType.GROUP_MESSAGE)  # 仅群聊生效
     async def handle_misfire_on(self, event: AstrMessageEvent):
         """开启当前群的走火功能"""
@@ -133,7 +133,7 @@ class RevolverGamePlugin(Star):
         self._save_misfire_switches()
         yield event.plain_result("走火功能已开启！")
 
-    @filter.command("走火关", priority=1)
+    @filter.command("command_misfire_off", priority=1)
     @filter.event_message_type(filter.EventMessageType.GROUP_MESSAGE)
     async def handle_misfire_off(self, event: AstrMessageEvent):
         """关闭当前群的走火功能"""
@@ -145,7 +145,7 @@ class RevolverGamePlugin(Star):
 
     @filter.command("command_load", priority=1)
     @filter.event_message_type(filter.EventMessageType.GROUP_MESSAGE)
-    async def handle_load(self, event: AstrMessageEvent, num: Optional[int] = 1):
+    async def handle_load(self, event: AstrMessageEvent ):
         """装填子弹（默认1发，支持1-6发）\n指令：/装填 [1-6]"""
         group_id = event.message_obj.group_id
         sender = event.get_sender_name() or "用户"
@@ -172,7 +172,7 @@ class RevolverGamePlugin(Star):
         yield event.plain_result(f"{sender}装填了{num}发子弹，游戏开始！")
         self._start_timer(group_id)
 
-    @filter.command("开枪", priority=1)
+    @filter.command("command_shoot", priority=1)
     @filter.event_message_type(filter.EventMessageType.GROUP_MESSAGE)
     async def handle_shoot(self, event: AstrMessageEvent):
         """触发开枪（轮流进行，命中会被禁言）"""
