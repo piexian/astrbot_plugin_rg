@@ -1,68 +1,60 @@
 {
   "plugin_config": {
-    "description": "插件配置",
     "type": "object",
+    "description": "插件配置",
     "items": {
       "command_load": {
         "description": "装填指令关键词",
         "type": "string",
-        "default": "装填",
-        "hint": "触发装填子弹的指令关键词"
+        "default": "装填"
       },
       "command_shoot": {
         "description": "开枪指令关键词",
         "type": "string",
-        "default": "开枪",
-        "hint": "触发开枪的指令关键词"
+        "default": "开枪"
       },
       "command_misfire_on": {
-        "description": "走火开启指令关键词",
+        "description": "走火开指令关键词",
         "type": "string",
-        "default": "走火开",
-        "hint": "开启走火功能的指令关键词"
+        "default": "走火开"
       },
       "command_misfire_off": {
-        "description": "走火关闭指令关键词",
+        "description": "走火关指令关键词",
         "type": "string",
-        "default": "走火关",
-        "hint": "关闭走火功能的指令关键词"
+        "default": "走火关"
       },
       "misfire_probability": {
-        "description": "走火概率",
+        "description": "走火概率（0-1）",
         "type": "float",
-        "default": 0.005,
-        "hint": "走火触发的概率(0-1之间)"
+        "default": 0.005
       },
       "default_misfire_switch": {
-        "description": "默认走火开关",
+        "description": "新群默认走火功能开关状态",
         "type": "bool",
-        "default": false,
-        "hint": "新群组默认是否开启走火功能"
+        "hint": "true=开启，false=关闭，群内可通过指令覆盖",
+        "default": false
       },
       "ban_time_range": {
-        "description": "禁言时间范围",
+        "description": "禁言时间范围（秒）",
         "type": "object",
-        "hint": "被击中后的禁言时间范围(秒)",
         "items": {
           "min": {
             "description": "最小禁言时间",
             "type": "int",
-            "default": 60,
-            "hint": "最短禁言时间(秒)"
+            "default": 60
           },
           "max": {
             "description": "最大禁言时间",
             "type": "int",
-            "default": 3000,
-            "hint": "最长禁言时间(秒)"
+            "default": 3000
           }
         }
       },
       "game_timeout": {
-        "description": "游戏超时时间",
+        "description": "游戏超时时间（秒）",
         "type": "int",
-        "default": 180,
-        "hint": "游戏自动结束的时间(秒)"
+        "hint": "装填后未操作的自动结束时间",
+        "default": 180
       }
     }
   }
