@@ -4,7 +4,6 @@ from astrbot.api.star import Context, Star, register
 from astrbot.api import logger
 from astrbot.core.star import StarTools
 from astrbot.core.platform.sources.aiocqhttp.aiocqhttp_message_event import AiocqhttpMessageEvent
-from apscheduler.schedulers.asyncio import AsyncIOScheduler
 import datetime
 import yaml
 import random
@@ -12,6 +11,7 @@ import os
 from typing import Dict, List, Optional
 import datetime
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
+from astrbot.config import AstrBotConfig
 
 
 @register("revolver_game","原作者：zgojin，修正者：piexian","群聊左轮手枪游戏插件，支持随机走火事件","1.7.3","https://github.com/piexian/astrbot_plugin_rg")
