@@ -5,7 +5,7 @@
     "items": {
       "misfire_probability": {
         "description": "走火概率",
-        "type": "float", 
+        "type": "float",
         "default": 0.005,
         "hint": "随机走火的触发概率(0-1)"
       },
@@ -18,7 +18,7 @@
       "ban_time_range": {
         "description": "禁言时间范围",
         "type": "object",
-        "hint": "设置禁言时长的范围(秒)", 
+        "hint": "设置禁言时长的范围(秒)",
         "items": {
           "min": {
             "description": "最小时长",
@@ -28,7 +28,7 @@
           },
           "max": {
             "description": "最大时长",
-            "type": "int", 
+            "type": "int",
             "default": 3000,
             "hint": "最长禁言时间(秒)"
           }

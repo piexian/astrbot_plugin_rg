@@ -13,8 +13,7 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 import astrbot.api.message_components as Comp
 
 
-@register("revolver_game","zgojin/piexian","群聊左轮手枪游戏插件，支持随机走火事件","1.7.5","https://github.com/piexian/astrbot_plugin_rg"
-)
+@register("revolver_game","zgojin, piexian","群聊左轮手枪游戏插件，支持随机走火事件","1.8.0","https://github.com/piexian/astrbot_plugin_rg")
 class RevolverGamePlugin(Star):
     def __init__(self, context: Context, config: AstrBotConfig):
         super().__init__(context)
@@ -40,12 +39,10 @@ class RevolverGamePlugin(Star):
         self._load_texts()
         self._load_misfire_switches()
 
-        # 调度器
         self.scheduler = AsyncIOScheduler()
         if not self.scheduler.running:
             self.scheduler.start()
-
-        asyncio.create_task(self._auto_save_config())
+        self._auto_save_task = asyncio.create_task(self._auto_save_config())
 
     # ---------- 工具函数 ----------
     def _load_texts(self):
@@ -224,3 +221,10 @@ class RevolverGamePlugin(Star):
                     )
             except Exception as e:
                 logger.error(f"走火禁言失败: {e}")
+
+    async def terminate(self):
+        """插件重载或停用时执行"""
+        self.scheduler.shutdown(wait=False)
+        self._save_misfire_switches()
+        if hasattr(self, "_auto_save_task"):
+            self._auto_save_task.cancel()
