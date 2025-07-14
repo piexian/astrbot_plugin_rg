@@ -1,316 +1,281 @@
 import asyncio
-from astrbot.api.event import filter, AstrMessageEvent
-from astrbot.api.star import Context, Star, register
+from astrbot.api.all import *
+from astrbot.api.event import MessageChain
+from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from astrbot.api import logger
-from astrbot.core.star import StarTools
 import datetime
 import yaml
 import random
 import os
-import json
-from typing import Optional, Dict, List, Union, Any
-import datetime
-import astrbot.api.message_components as Comp
-from apscheduler.schedulers.asyncio import AsyncIOScheduler
-from astrbot.core.config import AstrBotConfig
 
-@register("revolver_game","原作者：zgojin，修正者：piexian","群聊左轮手枪游戏插件，支持随机走火事件","1.7.5","https://github.com/piexian/astrbot_plugin_rg") 
+
+# 插件目录
+PLUGIN_DIR = os.path.join('data', 'plugins', 'astrbot_plugin_rg')
+# 确保插件目录存在https://github.com/piexian/astrbot_plugin_rg
+if not os.path.exists(PLUGIN_DIR):
+    os.makedirs(PLUGIN_DIR)
+
+# 配置路径
+TEXTS_FILE = os.path.join(PLUGIN_DIR, 'revolver_game_texts.yml')
+
+@register("astrbot_plugin_rg", "zgojin, piexian", "1.4.0", "https://github.com/piexian/astrbot_plugin_rg")
 class RevolverGamePlugin(Star):
-    def __init__(self, context: Context, config: AstrBotConfig):
+    def __init__(self, context: Context):
         super().__init__(context)
-        self.config = config
-        self.plugin_config = config.get('plugin_config', {})
-        
-        # 从配置获取功能参数
-        self.misfire_probability = float(self.plugin_config.get("misfire_probability", 0.005))
-        self.default_misfire_switch = bool(self.plugin_config.get("default_misfire_switch", False))
-        
-        ban_time_range = self.plugin_config.get("ban_time_range", {})
-        self.ban_time_min = int(ban_time_range.get("min", 60))
-        self.ban_time_max = int(ban_time_range.get("max", 3000))
-        self.game_timeout = int(self.plugin_config.get("game_timeout", 180))
-        
-        # 游戏状态（键：群ID，值：游戏数据）
-        self.group_states: Dict[str, Dict] = {}  # {群ID: {chambers: List[bool], index: int}}
-        self.group_misfire_switches: Dict[str, bool] = {}  # {群ID: 走火开关状态}
-        self.texts: Dict = {}  # 提示文本
-        
-        # 数据目录（符合文档规范：存储在data目录下）
-        self.plugin_data_dir = StarTools.get_data_dir() / "plugin_data" / "astrbot_plugin_rg"
-        self.plugin_data_dir.mkdir(parents=True, exist_ok=True)
-        self.texts_file = self.plugin_data_dir / "revolver_game_texts.yml"
-        
-        # 加载配置
-        self._load_texts()
-        self._load_misfire_switches()
-        
-        # 调度器
-        self.scheduler = getattr(context, "scheduler", None) or AsyncIOScheduler()
-        if not self.scheduler.running:
-            self.scheduler.start()
-        
-        # 注册配置保存任务
-        asyncio.create_task(self._auto_save_config())
+        # 从 context 中获取配置
+        self.config = context.get_config()
+        # 群游戏状态
+        self.group_states = {}
+        # 加载走火开关
+        self.group_misfire_switches = self._load_misfire_switches()
+        # 走火概率
+        self.misfire_probability = 0.005
+        # 群定时器开始时间
+        self.group_timer_start_time = {}
+        # 加载游戏文本
+        self.texts = self._load_texts()
+        # 初始化定时器调度器
+        if not hasattr(context, 'scheduler'):
+            context.scheduler = AsyncIOScheduler()
+            context.scheduler.start()
+        self.scheduler = context.scheduler
+        # 群消息来源映射
+        self.group_umo_mapping = {}
 
     def _load_texts(self):
-        """加载游戏文本，如果不存在则创建默认文本"""
+        """加载游戏文本，多编码尝试"""
         if not hasattr(self, '_cached_texts'):
-            # 默认文本
-            default_texts = {
-                "misfire_switches": {},
-                "misfire_descriptions": [
-                    "突然，左轮手枪走火了！",
-                    "意外发生了！手枪突然走火！",
-                    "砰！手枪竟然走火了！"
-                ],
-                "user_reactions": [
-                    "{sender}被击中了，痛苦地倒下了",
-                    "{sender}中弹了，表情非常痛苦",
-                    "可怜的{sender}被子弹击中了"
-                ],
-                "trigger_descriptions": [
-                    "砰！枪响了",
-                    "突然一声枪响",
-                    "命中目标"
-                ],
-                "miss_messages": [
-                    "是空枪！{sender}安全了",
-                    "咔嚓，{sender}运气不错",
-                    "{sender}逃过一劫"
-                ]
-            }
-
-            if not self.texts_file.exists():
-                # 如果文件不存在，创建默认文本文件
-                self.texts_file.parent.mkdir(parents=True, exist_ok=True)
-                with open(self.texts_file, 'w', encoding='utf-8') as f:
-                    yaml.dump(default_texts, f, allow_unicode=True)
-                self._cached_texts = default_texts
-            else:
-                # 如果文件存在，尝试读取
-                encodings = ['utf-8', 'gbk', 'gb2312']
-                for encoding in encodings:
-                    try:
-                        with open(self.texts_file, 'r', encoding=encoding) as f:
-                            self._cached_texts = yaml.safe_load(f) or default_texts
-                            break
-                    except UnicodeDecodeError:
-                        continue
-                    except Exception as e:
-                        logger.error(f"读取文本文件失败: {e}")
-                        self._cached_texts = default_texts
+            encodings = ['utf-8', 'gbk', 'gb2312']
+            for encoding in encodings:
+                try:
+                    with open(TEXTS_FILE, 'r', encoding=encoding) as file:
+                        self._cached_texts = yaml.safe_load(file)
                         break
-                else:
-                    self._cached_texts = default_texts
-            
-            self.texts = self._cached_texts
+                except UnicodeDecodeError:
+                    continue
+            else:
+                self._cached_texts = {}
         return self._cached_texts
-        
+
     def _load_misfire_switches(self):
-        """加载走火开关状态（持久化）"""
-        self.group_misfire_switches = self.texts.get("misfire_switches", {})
+        """从配置文件加载走火开关信息"""
+        texts = self._load_texts()
+        return texts.get('misfire_switches', {})
 
     def _save_misfire_switches(self):
-        """保存走火开关状态"""
-        self.texts["misfire_switches"] = self.group_misfire_switches
-        with open(self.texts_file, "w", encoding="utf-8") as f:
-            yaml.dump(self.texts, f, allow_unicode=True)
+        """保存走火开关信息到配置文件"""
+        texts = self._load_texts()
+        if 'misfire_switches' not in texts:
+            texts['misfire_switches'] = {}
+        texts['misfire_switches'].update(self.group_misfire_switches)
+        with open(TEXTS_FILE, 'w', encoding='utf-8') as file:
+            yaml.dump(texts, file, allow_unicode=True)
 
-    def _init_group_switch(self, group_id: str):
-        """初始化群走火开关（默认关闭）"""
-        if group_id not in self.group_misfire_switches:
-            self.group_misfire_switches[group_id] = self.default_misfire_switch
-
-    def _start_timer(self, group_id: str):
-        """启动游戏超时定时器（使用框架调度器）"""
-        self.scheduler.add_job(
-            self._timeout, "date",
-            run_date=datetime.datetime.now() + datetime.timedelta(seconds=self.game_timeout),
-            args=[group_id], id=f"revolver_timer_{group_id}", replace_existing=True
-        )
-
-    async def _timeout(self, group_id: str):
-        """超时清理游戏状态并发送播报"""
-        if group_id in self.group_states:
-            # 获取群名称（如果可能）
-            group_name = f"群{group_id}"
-            bot = getattr(self.context, "bot", None)
-            
-            # 尝试获取群名称
-            if bot and hasattr(bot, "get_group_info"):
-                try:
-                    group_info = await bot.get_group_info(group_id=int(group_id))
-                    group_name = group_info.get("group_name", group_name)
-                except Exception as e:
-                    logger.warning(f"获取群名称失败: {e}")
-                    group_name = group_id
-            # 清理游戏状态
-            del self.group_states[group_id]
-            logger.info(f"{group_name}({group_id}) 游戏超时，已结束")
-            
-            # 发送超时播报
-            timeout_msg = random.choice(self.texts.get("timeout_messages", [
-                f"【游戏超时】{group_name} 的左轮游戏已结束！如需继续游戏，请发送 /装填 [1-6]"
-            ]))
-            
-            # 使用框架的消息发送API
-            try:
-                await self.bot.send_group_msg(group_id=group_id, message=timeout_msg)
-            except Exception as e:
-                logger.error(f"超时消息发送失败: {e}")
-    # ------------------------------
-    # 指令处理
-    # ------------------------------
-
-    # 修改指令装饰器,使用固定指令 
-    @filter.command("装填", alias={"load"})
-    @filter.event_message_type(filter.EventMessageType.GROUP_MESSAGE)
-    async def handle_load(self, event: AstrMessageEvent):
-        """装填子弹\n用法: /装填 [1-6]"""
-        try:
-            # 获取消息内容并解析参数
-            message = event.message_str.strip()
-            parts = message.split()
-            # 尝试获取数量参数
-            num = int(parts[1]) if len(parts) > 1 else 1
-        except (IndexError, ValueError):
-            num = 1
-            
-        group_id = event.message_obj.group_id
-        sender = event.get_sender_name() or "用户"
+    @event_message_type(EventMessageType.ALL)
+    async def on_all_messages(self, event: AstrMessageEvent):
+        """处理所有消息"""
+        group_id = self._get_group_id(event)
+        is_private = not group_id  # 判断是否为私聊
+        message_str = event.message_str.strip()
         
-        # 限制子弹数量在1-6之间
-        num = max(1, min(6, num))
-        
-        # 检查游戏状态
-        if group_id in self.group_states and any(self.group_states[group_id].get("chambers", [])):
-            yield event.plain_result("当前游戏未结束，不能重新装填哦~")
+        if is_private:
+            valid_commands = ["走火开", "走火关", "装填", "开枪"]
+            if any(message_str.startswith(cmd) for cmd in valid_commands):
+                yield event.plain_result("该游戏仅限群聊中使用，请在群内游玩。")
+            # 直接返回，不对私聊消息进行任何其他处理
             return
-        
-        # 初始化弹仓
-        chambers = [False] * 6
-        for pos in random.sample(range(6), num):
-            chambers[pos] = True
-        self.group_states[group_id] = {"chambers": chambers, "index": 0}
-        
-        yield event.plain_result(f"{sender}装填了{num}发子弹，游戏开始！")
-        self._start_timer(group_id)
 
-    @filter.command("开枪", alias={"shoot"})
-    @filter.event_message_type(filter.EventMessageType.GROUP_MESSAGE)
-    async def handle_shoot(self, event: AstrMessageEvent):
-        """开枪指令\n用法: /开枪"""
-        group_id = event.message_obj.group_id
-        sender = event.get_sender_name() or "用户"
-        
-        # 检查是否已装填子弹
-        if group_id not in self.group_states or not self.group_states[group_id].get("chambers"):
-            yield event.plain_result(f"请先装填子弹（指令：/装填 [1-6]）")
-            return
-        
-        # 获取当前游戏状态
-        state = self.group_states[group_id]
-        current_idx = state["index"]
-        is_real = state["chambers"][current_idx]
-        
-        # 更新下一轮索引（循环6个位置）
-        state["index"] = (current_idx + 1) % 6
-        
-        if is_real:
-            # 命中：禁言+提示
-            state["chambers"][current_idx] = False  # 移除该子弹
-            desc = random.choice(self.texts.get("trigger_descriptions", ["枪响了"]))
-            react = random.choice(self.texts.get("user_reactions", ["{sender}被击中"])).format(sender=sender)
-            yield event.plain_result(f"{desc}，{react}！")
-            
-            # 执行禁言（仅支持aiocqhttp平台）
-            if isinstance(event, AiocqhttpMessageEvent):
-                try:
-                    duration = random.randint(self.ban_time_min, self.ban_time_max)
-                    await event.bot.set_group_ban(
-                        group_id=int(group_id),
-                        user_id=int(event.get_sender_id()),
-                        duration=duration
-                    )
-                except Exception as e:
-                    logger.error(f"禁言失败: {e}")
-                    yield event.plain_result("禁言失败（可能缺少管理员权限）")
-            else:
-                yield event.plain_result("当前平台不支持禁言功能")
+        self._init_group_misfire_switch(group_id)
+
+        if message_str == "走火开":
+            result = await self._handle_misfire_switch_on(event, group_id)
+            yield result
+        elif message_str == "走火关":
+            result = await self._handle_misfire_switch_off(event, group_id)
+            yield result
+        elif not self.group_misfire_switches[group_id]:
+            pass
         else:
-            # 空枪：提示安全
-            miss = random.choice(self.texts.get("miss_messages", ["是空枪！{sender}安全了"])).format(sender=sender)
-            yield event.plain_result(miss)
-        
-        # 检查游戏是否结束（所有子弹已射出）
-        if not any(state["chambers"]):
-            del self.group_states[group_id]
-            yield event.plain_result("所有子弹已射出，游戏结束！")
+            if random.random() <= self.misfire_probability:
+                async for result in self._handle_misfire(event, group_id):
+                    yield result
 
-    @filter.event_message_type(filter.EventMessageType.GROUP_MESSAGE)
-    @filter.platform_adapter_type(filter.PlatformAdapterType.AIOCQHTTP | filter.PlatformAdapterType.QQOFFICIAL)
-    async def handle_random_misfire(self, event: AstrMessageEvent, *args, **kwargs):
-        """随机走火检测（群消息触发低概率走火）"""
-        async for response in self._handle_random_misfire(event):
-            yield response
+        if message_str.startswith("装填"):
+            num_bullets = self._parse_bullet_count(message_str)
+            if num_bullets is None:
+                yield event.plain_result("你输入的装填子弹数量不是有效的整数，请重新输入。")
+            else:
+                async for result in self.load_bullets(event, num_bullets):
+                    yield result
+        elif message_str == "开枪":
+            async for result in self.shoot(event):
+                yield result
 
-    async def _handle_random_misfire(self, event: AstrMessageEvent):
-        """随机走火检测的具体实现"""
-        group_id = event.message_obj.group_id
-        sender = event.get_sender_name() or "用户"
-        self._init_group_switch(group_id)
-        
-        # 检查走火开关是否开启且随机命中概率
-        if self.group_misfire_switches[group_id] and random.random() <= self.misfire_probability:
-            desc = random.choice(self.texts.get("misfire_descriptions", ["突然，左轮手枪走火了！"]))
-            react = random.choice(self.texts.get("user_reactions", ["{sender}被流弹击中"])).format(sender=sender)
-            yield event.plain_result(f"{desc} {react}！")
-            
-            # 走火禁言
-            if isinstance(event, AiocqhttpMessageEvent):
-                try:
-                    duration = random.randint(self.ban_time_min, self.ban_time_max)
-                    await event.bot.set_group_ban(
-                        group_id=int(group_id),
-                        user_id=int(event.get_sender_id()),
-                        duration=duration
-                    )
-                except Exception as e:
-                    logger.error(f"走火禁言失败: {e}")
+    def _get_group_id(self, event: AstrMessageEvent):
+        """获取群id"""
+        return event.message_obj.group_id if hasattr(event.message_obj, "group_id") else None
 
-    async def _handle_misfire_on(self, event: AstrMessageEvent):
-        """开启走火功能\n用法: /{command}"""
-        group_id = event.message_obj.group_id
-        self._init_group_switch(group_id)
+    def _init_group_misfire_switch(self, group_id):
+        """初始化群走火开关"""
+        if group_id not in self.group_misfire_switches:
+            self.group_misfire_switches[group_id] = False
+
+    async def _handle_misfire_switch_on(self, event: AstrMessageEvent, group_id):
+        """开启群走火开关并保存信息"""
         self.group_misfire_switches[group_id] = True
         self._save_misfire_switches()
-        yield event.plain_result("走火功能已开启！")
+        return event.plain_result("本群左轮手枪走火功能已开启！")
 
-    async def _handle_misfire_off(self, event: AstrMessageEvent):
-        """关闭走火功能\n用法: /{command}"""
-        group_id = event.message_obj.group_id
-        self._init_group_switch(group_id)
+    async def _handle_misfire_switch_off(self, event: AstrMessageEvent, group_id):
+        """关闭群走火开关并保存信息"""
         self.group_misfire_switches[group_id] = False
         self._save_misfire_switches()
-        yield event.plain_result("走火功能已关闭！")
+        return event.plain_result("本群左轮手枪走火功能已关闭！")
 
-    async def _auto_save_config(self):
-        """定期保存配置"""
-        while True:
-            await asyncio.sleep(300)  # 每5分钟保存一次
+    async def _handle_misfire(self, event: AstrMessageEvent, group_id):
+        """处理走火事件，禁言用户"""
+        sender_nickname = event.get_sender_name()
+        client = event.bot
+
+        misfire_desc = random.choice(self.texts.get('misfire_descriptions', []))
+        user_reaction = random.choice(self.texts.get('user_reactions', [])).format(sender_nickname=sender_nickname)
+        message = f"{misfire_desc} {user_reaction} 不幸被击中！"
+        try:
+            yield event.plain_result(message)
+        except Exception as e:
+            logger.error(f"Failed to handle misfire: {e}")
+        await self._ban_user(event, client, int(event.get_sender_id()))
+
+    def _parse_bullet_count(self, message_str):
+        """解析装填子弹数量"""
+        parts = message_str.split()
+        if len(parts) > 1:
             try:
-                # 更新全局配置
-                bot_config = self.context.get_config()
-                bot_config['astrbot_plugin_rg'] = {
-                    'misfire_probability': self.misfire_probability,
-                    'default_misfire_switch': self.default_misfire_switch,
-                    'ban_time_range': {
-                        'min': self.ban_time_min,
-                        'max': self.ban_time_max
-                    },
-                    'game_timeout': self.game_timeout
-                }
-                bot_config.save_config()
-                logger.info("[RevolverGame] 配置已保存")
-            except Exception as e:
-                logger.error(f"[RevolverGame] 保存配置失败: {e}")
+                return int(parts[1])
+            except ValueError:
+                return None
+        return 1
+
+    async def load_bullets(self, event: AstrMessageEvent, x: int = 1):
+        """装填子弹，检查并启动定时器"""
+        sender_nickname = event.get_sender_name()
+        group_id = event.message_obj.group_id
+        group_state = self.group_states.get(group_id)
+
+        job_id = f"timeout_{group_id}"
+        self._remove_timer_job(job_id)
+
+        if group_state and 'chambers' in group_state and any(group_state['chambers']):
+            yield event.plain_result(f"{sender_nickname}，游戏还未结束，不能重新装填，请继续射击！")
+            return
+
+        if x < 1 or x > 6:
+            yield event.plain_result(f"{sender_nickname}，装填的实弹数量必须在 1 到 6 之间，请重新输入。")
+            return
+
+        chambers = [False] * 6
+        positions = random.sample(range(6), x)
+        for pos in positions:
+            chambers[pos] = True
+
+        group_state = {
+            'chambers': chambers,
+            'current_chamber_index': 0
+        }
+        self.group_states[group_id] = group_state
+
+        yield event.plain_result(f"{sender_nickname} 装填了 {x} 发实弹到 6 弹匣的左轮手枪，输入 /开枪 开始游戏！")
+        self.start_timer(event, group_id, 180)
+
+    async def shoot(self, event: AstrMessageEvent):
+        """射击操作，处理结果"""
+        sender_nickname = event.get_sender_name()
+        group_id = event.message_obj.group_id
+        group_state = self.group_states.get(group_id)
+
+        job_id = f"timeout_{group_id}"
+        self._remove_timer_job(job_id)
+
+        if not group_state or 'chambers' not in group_state:
+            yield event.plain_result(f"{sender_nickname}，枪里好像没有子弹呢，请先装填。")
+            return
+
+        client = event.bot
+        self.start_timer(event, group_id, 180)
+
+        chambers = group_state['chambers']
+        current_index = group_state['current_chamber_index']
+
+        if chambers[current_index]:
+            async for result in self._handle_real_shot(event, group_state, chambers, current_index, sender_nickname, client):
+                yield result
+        else:
+            async for result in self._handle_empty_shot(event, group_state, chambers, current_index, sender_nickname):
+                yield result
+
+        remaining_bullets = sum(group_state['chambers'])
+        if remaining_bullets == 0:
+            self._remove_timer_job(job_id)
+            del self.group_states[group_id]
+            yield event.plain_result(f"{sender_nickname}，弹匣内的所有实弹都已射出，游戏结束。若想继续，可再次装填。")
+
+    async def _handle_real_shot(self, event: AstrMessageEvent, group_state, chambers, current_index, sender_nickname, client):
+        """处理击中目标，更新状态并禁言用户"""
+        chambers[current_index] = False
+        group_state['current_chamber_index'] = (current_index + 1) % 6
+        trigger_desc = random.choice(self.texts.get('trigger_descriptions', []))
+        user_reaction = random.choice(self.texts.get('user_reactions', [])).format(sender_nickname=sender_nickname)
+        message = f"{trigger_desc}，{user_reaction}"
+        try:
+            yield event.plain_result(message)
+        except Exception as e:
+            logger.error(f"Failed to handle real shot: {e}")
+        await self._ban_user(event, client, int(event.get_sender_id()))
+
+    async def _handle_empty_shot(self, event: AstrMessageEvent, group_state, chambers, current_index, sender_nickname):
+        """处理未击中目标，更新状态"""
+        group_state['current_chamber_index'] = (current_index + 1) % 6
+        miss_message = random.choice(self.texts.get('miss_messages', [])).format(sender_nickname=sender_nickname)
+        try:
+            yield event.plain_result(miss_message)
+        except Exception as e:
+            logger.error(f"Failed to handle empty shot: {e}")
+
+    def start_timer(self, event: AstrMessageEvent, group_id, seconds):
+        """启动群定时器"""
+        umo = event.unified_msg_origin
+        self.group_umo_mapping[group_id] = umo
+
+        run_time = datetime.datetime.now() + datetime.timedelta(seconds=seconds)
+        job_id = f"timeout_{group_id}"
+        self.scheduler.add_job(
+            self.timeout_callback,
+            'date',
+            run_date=run_time,
+            args=[group_id],
+            id=job_id
+        )
+
+    async def timeout_callback(self, group_id):
+        """定时器超时，移除群游戏状态"""
+        if group_id in self.group_states:
+            del self.group_states[group_id]
+
+    async def _ban_user(self, event: AstrMessageEvent, client, user_id):
+        """禁言用户"""
+        try:
+            await client.set_group_ban(
+                group_id=int(event.get_group_id()),
+                user_id=user_id,
+                duration=60,
+                self_id=int(event.get_self_id())
+            )
+        except Exception as e:
+            logger.error(f"Failed to ban user: {e}")
+
+    def _remove_timer_job(self, job_id):
+        """移除定时器任务"""
+        try:
+            self.scheduler.remove_job(job_id)
+        except Exception as e:
+            logger.error(f"Failed to remove timer job: {e}")
