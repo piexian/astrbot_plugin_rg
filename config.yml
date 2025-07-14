@@ -1,7 +1,0 @@
-plugin_config:
-  misfire_probability: 0.005
-  default_misfire_switch: false
-  ban_time_range:
-    min: 60
-    max: 3000
-  game_timeout: 180
