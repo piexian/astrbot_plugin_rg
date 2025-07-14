@@ -3,9 +3,6 @@ from astrbot.api.event import filter, AstrMessageEvent
 from astrbot.api.star import Context, Star, register
 from astrbot.api import logger
 from astrbot.core.star import StarTools
-from astrbot.api.platform import AiocqhttpAdapter, PlatformAdapterType
-from astrbot.core.platform.sources.aiocqhttp.aiocqhttp_message_event import AiocqhttpMessageEvent
-
 import datetime
 import yaml
 import random
@@ -16,6 +13,8 @@ import datetime
 import astrbot.api.message_components as Comp
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from astrbot.core.config import AstrBotConfig
+from astrbot.api.platform import Platform
+
 
 @register("revolver_game","原作者：zgojin，修正者：piexian","群聊左轮手枪游戏插件，支持随机走火事件","1.7.5","https://github.com/piexian/astrbot_plugin_rg") 
 class RevolverGamePlugin(Star):
@@ -23,6 +22,7 @@ class RevolverGamePlugin(Star):
         super().__init__(context)
         self.config = config
         self.plugin_config = config.get('plugin_config', {})
+        self.platforms = self.context.platform_manager.get_insts() 
         
         # 从配置获取功能参数
         self.misfire_probability = float(self.plugin_config.get("misfire_probability", 0.005))
@@ -141,11 +141,12 @@ class RevolverGamePlugin(Star):
                 platform = self.context.get_platform(PlatformAdapterType.AIOCQHTTP)
                 if isinstance(platform, AiocqhttpAdapter):
                     client = platform.get_client()
-                    resp = await client.api.call_action('get_group_info', {
-                        'group_id': int(group_id)
-                    })
-                    if resp.get('data'):
-                        group_name = resp['data'].get('group_name', group_name)
+                    payloads = {
+                        "group_id": int(group_id)
+                    }
+                    ret = await client.api.call_action('get_group_info', **payloads)
+                    if ret.get('data'):
+                        group_name = ret['data'].get('group_name', group_name)
             except Exception as e:
                 logger.warning(f"获取群名称失败: {e}")
                 group_name = group_id
@@ -158,19 +159,21 @@ class RevolverGamePlugin(Star):
                 f"【游戏超时】{group_name} 的左轮游戏已结束！如需继续游戏，请发送 /装填 [1-6]"
             ]))           
             try:
-                await event.bot.send_group_message(
-                    group_id=int(group_id),
-                    message=timeout_msg
-                )
+                client = platform.get_client()
+                payloads = {
+                    "group_id": int(group_id),
+                    "message": timeout_msg
+                }
+                await client.api.call_action('send_group_msg', **payloads)
             except Exception as e:
                 logger.error(f"超时消息发送失败: {e}")
     # ------------------------------
     # 指令处理
     # ------------------------------
-
     @filter.command("装填", alias={"load"})
+    @filter.platform_adapter_type(filter.PlatformAdapterType.AIOCQHTTP | filter.PlatformAdapterType.QQOFFICIAL)
     @filter.event_message_type(filter.EventMessageType.GROUP_MESSAGE)
-    async def handle_load(self, event: AstrMessageEvent, num: int = 1):
+    async def load(self, event: AstrMessageEvent, num: int = 1):
         """装填子弹
         Args:
             num (int): 装填子弹数量,范围1-6,默认1发
@@ -196,8 +199,10 @@ class RevolverGamePlugin(Star):
         self._start_timer(group_id)
 
     @filter.command("走火开")
+    @filter.platform_adapter_type(filter.PlatformAdapterType.AIOCQHTTP | filter.PlatformAdapterType.QQOFFICIAL)
     @filter.event_message_type(filter.EventMessageType.GROUP_MESSAGE)
     async def handle_misfire_on(self, event: AstrMessageEvent):
+
         """开启走火功能"""
         group_id = event.message_obj.group_id
         self._init_group_switch(group_id)
@@ -206,6 +211,7 @@ class RevolverGamePlugin(Star):
         yield event.plain_result("走火功能已开启！")
 
     @filter.command("走火关")
+    @filter.platform_adapter_type(filter.PlatformAdapterType.AIOCQHTTP | filter.PlatformAdapterType.QQOFFICIAL)
     @filter.event_message_type(filter.EventMessageType.GROUP_MESSAGE)
     async def handle_misfire_off(self, event: AstrMessageEvent):
         """关闭走火功能"""
@@ -215,9 +221,11 @@ class RevolverGamePlugin(Star):
         self._save_misfire_switches()
         yield event.plain_result("走火功能已关闭！")
 
-    @filter.command("开枪")
+    @filter.command("开枪", alias={"shoot"})
+    @filter.platform_adapter_type(filter.PlatformAdapterType.AIOCQHTTP | filter.PlatformAdapterType.QQOFFICIAL)
     @filter.event_message_type(filter.EventMessageType.GROUP_MESSAGE)
-    async def handle_shoot(self, event: AstrMessageEvent):
+    async def shoot(self, event: AstrMessageEvent):
+        logger.debug("进入开枪指令处理逻辑")
         """开枪指令"""
         group_id = event.message_obj.group_id
         sender = event.get_sender_name() or "用户"
@@ -242,19 +250,23 @@ class RevolverGamePlugin(Star):
             react = random.choice(self.texts.get("user_reactions", ["{sender}被击中"])).format(sender=sender)
             yield event.plain_result(f"{desc}，{react}！")
             
-            # 执行禁言（优化平台调用）
+            # 执行禁言（使用协议端API）
             try:
                 duration = random.randint(self.ban_time_min, self.ban_time_max)
-                if event.get_platform_name() == "aiocqhttp":
-                    await event.bot.set_group_ban(
-                        group_id=int(group_id),
-                        user_id=int(event.get_sender_id()),
-                        duration=duration
-                    )
+                if event.get_platform_name() == "aiocqhttp":                   
+                    client = event.bot
+                    payloads = {
+                        "group_id": int(group_id),
+                        "user_id": int(event.get_sender_id()),
+                        "duration": duration
+                    }
+                    ret = await client.api.call_action('set_group_ban', **payloads)
+                    logger.debug(f"禁言结果: {ret}")
             except Exception as e:
                 logger.error(f"禁言失败: {e}")
                 yield event.plain_result("禁言失败（可能缺少管理员权限）")
-
+                logger.debug(f"群ID: {group_id}, 弹仓状态: {state['chambers']}, 当前索引: {current_idx}, 是否命中: {is_real}")
+    @filter.platform_adapter_type(filter.PlatformAdapterType.AIOCQHTTP | filter.PlatformAdapterType.QQOFFICIAL)
     @filter.event_message_type(filter.EventMessageType.GROUP_MESSAGE)
     async def handle_random_misfire(self, event: AstrMessageEvent):
         """随机走火检测"""
@@ -276,37 +288,18 @@ class RevolverGamePlugin(Star):
             react = random.choice(self.texts.get("user_reactions", ["{sender}被流弹击中"])).format(sender=sender)
             yield event.plain_result(f"{desc} {react}！")
             
-            # 走火禁言（优化平台调用）
+            # 走火禁言（使用协议端API）
             try:
                 duration = random.randint(self.ban_time_min, self.ban_time_max)
-                platform = self.context.get_platform(PlatformAdapterType.AIOCQHTTP)
-                if isinstance(platform, AiocqhttpAdapter):
-                    client = platform.get_client()
-                    await client.api.call_action('set_group_ban', {
-                        'group_id': int(group_id),
-                        'user_id': int(event.get_sender_id()),
-                        'duration': duration
-                    })
+                assert isinstance(event, AiocqhttpMessageEvent)
+                client = event.bot
+                payloads = {
+                    "group_id": int(group_id),
+                    "user_id": int(event.get_sender_id()),
+                    "duration": duration
+                }
+                ret = await client.api.call_action('set_group_ban', **payloads)
+                logger.debug(f"走火禁言结果: {ret}")
             except Exception as e:
                 logger.error(f"走火禁言失败: {e}")
                 event.stop_event()  # 终止事件传播
-
-    async def _auto_save_config(self):
-        """定期保存配置"""
-        while True:
-            try:
-                await asyncio.sleep(300)
-                config = self.context.get_config()
-                config['astrbot_plugin_rg'].update({
-                    'misfire_probability': self.misfire_probability,
-                    'default_misfire_switch': self.default_misfire_switch,
-                    'ban_time_range': {
-                        'min': self.ban_time_min,
-                        'max': self.ban_time_max
-                    },
-                    'game_timeout': self.game_timeout
-                })
-                await config.save_config()
-                logger.info("[RevolverGame] 配置已保存")
-            except Exception as e:
-                logger.error(f"[RevolverGame] 保存配置失败: {e}")
