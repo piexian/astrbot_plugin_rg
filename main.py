@@ -165,17 +165,11 @@ class RevolverGamePlugin(Star):
     # 修改指令装饰器,使用固定指令 
     @filter.command("装填", alias={"load"})
     @filter.event_message_type(filter.EventMessageType.GROUP_MESSAGE)
-    async def handle_load(self, event: AstrMessageEvent):
-        """装填子弹\n用法: /装填 [1-6]"""
-        try:
-            # 获取消息内容并解析参数
-            message = event.message_str.strip()
-            parts = message.split()
-            # 尝试获取数量参数
-            num = int(parts[1]) if len(parts) > 1 else 1
-        except (IndexError, ValueError):
-            num = 1
-            
+    async def handle_load(self, event: AstrMessageEvent, num: int = 1):
+        """装填子弹
+        Args:
+            num (int): 装填子弹数量,范围1-6,默认1发
+        """
         group_id = event.message_obj.group_id
         sender = event.get_sender_name() or "用户"
         
@@ -196,10 +190,30 @@ class RevolverGamePlugin(Star):
         yield event.plain_result(f"{sender}装填了{num}发子弹，游戏开始！")
         self._start_timer(group_id)
 
-    @filter.command("开枪", alias={"shoot"})
-    @filter.event_message_type(filter.EventMessageType.GROUP_MESSAGE) 
+    @filter.command("走火开")
+    @filter.event_message_type(filter.EventMessageType.GROUP_MESSAGE)
+    async def handle_misfire_on(self, event: AstrMessageEvent):
+        """开启走火功能"""
+        group_id = event.message_obj.group_id
+        self._init_group_switch(group_id)
+        self.group_misfire_switches[group_id] = True
+        self._save_misfire_switches()
+        yield event.plain_result("走火功能已开启！")
+
+    @filter.command("走火关")
+    @filter.event_message_type(filter.EventMessageType.GROUP_MESSAGE)
+    async def handle_misfire_off(self, event: AstrMessageEvent):
+        """关闭走火功能"""
+        group_id = event.message_obj.group_id
+        self._init_group_switch(group_id)
+        self.group_misfire_switches[group_id] = False
+        self._save_misfire_switches()
+        yield event.plain_result("走火功能已关闭！")
+
+    @filter.command("开枪")
+    @filter.event_message_type(filter.EventMessageType.GROUP_MESSAGE)
     async def handle_shoot(self, event: AstrMessageEvent):
-        """开枪指令\n用法: /开枪"""
+        """开枪指令"""
         group_id = event.message_obj.group_id
         sender = event.get_sender_name() or "用户"
         
@@ -223,25 +237,27 @@ class RevolverGamePlugin(Star):
             react = random.choice(self.texts.get("user_reactions", ["{sender}被击中"])).format(sender=sender)
             yield event.plain_result(f"{desc}，{react}！")
             
-            # 执行禁言（检查平台支持）
+            # 执行禁言
             try:
                 duration = random.randint(self.ban_time_min, self.ban_time_max)
-                if event.get_adapter_type() in [PlatformAdapterType.AIOCQHTTP, PlatformAdapterType.QQOFFICIAL]:
-                    await event.bot.set_group_ban(
-                        group_id=int(group_id),
-                        user_id=int(event.get_sender_id()),
-                        duration=duration
-                    )
-                else:
-                    yield event.plain_result("当前平台不支持禁言功能")
+                await self.context.bot.set_group_ban(
+                    group_id=int(group_id),
+                    user_id=int(event.get_sender_id()),
+                    duration=duration
+                )
             except Exception as e:
                 logger.error(f"禁言失败: {e}")
                 yield event.plain_result("禁言失败（可能缺少管理员权限）")
+        else:
+            miss = random.choice(self.texts.get("miss_messages", ["是空枪！{sender}安全了"])).format(sender=sender)
+            yield event.plain_result(miss)
 
     @filter.event_message_type(filter.EventMessageType.GROUP_MESSAGE)
-    @filter.platform_adapter_type(PlatformAdapterType.AIOCQHTTP | PlatformAdapterType.QQOFFICIAL)
     async def handle_random_misfire(self, event: AstrMessageEvent):
-        """随机走火检测（群消息触发低概率走火）"""
+        """随机走火检测"""
+        if not event.get_adapter_type() in [PlatformAdapterType.AIOCQHTTP, PlatformAdapterType.QQOFFICIAL]:
+            return
+
         group_id = event.message_obj.group_id
         sender = event.get_sender_name() or "用户"
         self._init_group_switch(group_id)
@@ -255,29 +271,13 @@ class RevolverGamePlugin(Star):
             # 走火禁言
             try:
                 duration = random.randint(self.ban_time_min, self.ban_time_max)
-                await event.bot.set_group_ban(
+                await self.context.bot.set_group_ban(
                     group_id=int(group_id),
                     user_id=int(event.get_sender_id()),
                     duration=duration
                 )
             except Exception as e:
                 logger.error(f"走火禁言失败: {e}")
-
-    async def _handle_misfire_on(self, event: AstrMessageEvent):
-        """开启走火功能\n用法: /{command}"""
-        group_id = event.message_obj.group_id
-        self._init_group_switch(group_id)
-        self.group_misfire_switches[group_id] = True
-        self._save_misfire_switches()
-        yield event.plain_result("走火功能已开启！")
-
-    async def _handle_misfire_off(self, event: AstrMessageEvent):
-        """关闭走火功能\n用法: /{command}"""
-        group_id = event.message_obj.group_id
-        self._init_group_switch(group_id)
-        self.group_misfire_switches[group_id] = False
-        self._save_misfire_switches()
-        yield event.plain_result("走火功能已关闭！")
 
     async def _auto_save_config(self):
         """定期保存配置"""
