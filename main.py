@@ -1,8 +1,6 @@
 import asyncio
-from astrbot.api.event import filter, AstrMessageEvent
+from astrbot.api.event import filter, AstrMessageEvent, PlatformAdapterType
 from astrbot.api.star import Context, Star, register
-# 添加平台事件类型导入
-from astrbot.api.event.platform.aiocqhttp import AiocqhttpMessageEvent
 from astrbot.api import logger
 from astrbot.core.star import StarTools
 import datetime
@@ -199,7 +197,7 @@ class RevolverGamePlugin(Star):
         self._start_timer(group_id)
 
     @filter.command("开枪", alias={"shoot"})
-    @filter.event_message_type(filter.EventMessageType.GROUP_MESSAGE)
+    @filter.event_message_type(filter.EventMessageType.GROUP_MESSAGE) 
     async def handle_shoot(self, event: AstrMessageEvent):
         """开枪指令\n用法: /开枪"""
         group_id = event.message_obj.group_id
@@ -220,15 +218,15 @@ class RevolverGamePlugin(Star):
         
         if is_real:
             # 命中：禁言+提示
-            state["chambers"][current_idx] = False  # 移除该子弹
+            state["chambers"][current_idx] = False
             desc = random.choice(self.texts.get("trigger_descriptions", ["枪响了"]))
             react = random.choice(self.texts.get("user_reactions", ["{sender}被击中"])).format(sender=sender)
             yield event.plain_result(f"{desc}，{react}！")
             
-            # 执行禁言（仅支持aiocqhttp平台）
+            # 执行禁言（检查平台支持）
             try:
                 duration = random.randint(self.ban_time_min, self.ban_time_max)
-                if hasattr(event, "bot") and hasattr(event.bot, "set_group_ban"):
+                if event.get_adapter_type() in [PlatformAdapterType.AIOCQHTTP, PlatformAdapterType.QQOFFICIAL]:
                     await event.bot.set_group_ban(
                         group_id=int(group_id),
                         user_id=int(event.get_sender_id()),
@@ -239,25 +237,11 @@ class RevolverGamePlugin(Star):
             except Exception as e:
                 logger.error(f"禁言失败: {e}")
                 yield event.plain_result("禁言失败（可能缺少管理员权限）")
-        else:
-            # 空枪：提示安全
-            miss = random.choice(self.texts.get("miss_messages", ["是空枪！{sender}安全了"])).format(sender=sender)
-            yield event.plain_result(miss)
-        
-        # 检查游戏是否结束（所有子弹已射出）
-        if not any(state["chambers"]):
-            del self.group_states[group_id]
-            yield event.plain_result("所有子弹已射出，游戏结束！")
 
     @filter.event_message_type(filter.EventMessageType.GROUP_MESSAGE)
-    @filter.platform_adapter_type(filter.PlatformAdapterType.AIOCQHTTP | filter.PlatformAdapterType.QQOFFICIAL)
-    async def handle_random_misfire(self, event: AstrMessageEvent, *args, **kwargs):
+    @filter.platform_adapter_type(PlatformAdapterType.AIOCQHTTP | PlatformAdapterType.QQOFFICIAL)
+    async def handle_random_misfire(self, event: AstrMessageEvent):
         """随机走火检测（群消息触发低概率走火）"""
-        async for response in self._handle_random_misfire(event):
-            yield response
-
-    async def _handle_random_misfire(self, event: AstrMessageEvent):
-        """随机走火检测的具体实现"""
         group_id = event.message_obj.group_id
         sender = event.get_sender_name() or "用户"
         self._init_group_switch(group_id)
@@ -269,16 +253,15 @@ class RevolverGamePlugin(Star):
             yield event.plain_result(f"{desc} {react}！")
             
             # 走火禁言
-            if isinstance(event, AiocqhttpMessageEvent):
-                try:
-                    duration = random.randint(self.ban_time_min, self.ban_time_max)
-                    await event.bot.set_group_ban(
-                        group_id=int(group_id),
-                        user_id=int(event.get_sender_id()),
-                        duration=duration
-                    )
-                except Exception as e:
-                    logger.error(f"走火禁言失败: {e}")
+            try:
+                duration = random.randint(self.ban_time_min, self.ban_time_max)
+                await event.bot.set_group_ban(
+                    group_id=int(group_id),
+                    user_id=int(event.get_sender_id()),
+                    duration=duration
+                )
+            except Exception as e:
+                logger.error(f"走火禁言失败: {e}")
 
     async def _handle_misfire_on(self, event: AstrMessageEvent):
         """开启走火功能\n用法: /{command}"""
