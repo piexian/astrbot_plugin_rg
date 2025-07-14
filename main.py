@@ -5,6 +5,7 @@ import os
 import json
 from typing import Dict, List
 from datetime import datetime, timedelta
+
 from astrbot.api.event import filter, AstrMessageEvent
 from astrbot.api.event.filter import EventMessageType
 from astrbot.api.star import Context, Star, register, StarTools
@@ -12,7 +13,6 @@ from astrbot.api import logger, AstrBotConfig
 from astrbot.api.platform import PlatformAdapterType, AiocqhttpAdapter
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 import astrbot.api.message_components as Comp
-
 
 @register("revolver_game","zgojin, piexian","群聊左轮手枪游戏插件，支持随机走火事件","1.8.0","https://github.com/piexian/astrbot_plugin_rg")
 class RevolverGamePlugin(Star):
