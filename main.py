@@ -5,7 +5,8 @@ import os
 import json
 from typing import Dict, List
 from datetime import datetime, timedelta
-from astrbot.api.event import filter, AstrMessageEvent, EventMessageType
+from astrbot.api.event import filter, AstrMessageEvent
+from astrbot.api.event.filter import EventMessageType
 from astrbot.api.star import Context, Star, register, StarTools
 from astrbot.api import logger, AstrBotConfig
 from astrbot.api.platform import PlatformAdapterType, AiocqhttpAdapter
