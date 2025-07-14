@@ -1,13 +1,13 @@
 import asyncio
+import random
+import yaml
+import os
+from datetime import datetime, timedelta
 from astrbot.api.all import *
 from astrbot.api.event import MessageChain
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from astrbot.api import logger
-import datetime
-import yaml
-import random
-import os
-
+import astrbot.api.message_components as Comp
 
 # 插件目录
 PLUGIN_DIR = os.path.join('data', 'plugins', 'astrbot_plugin_rg')
@@ -267,7 +267,7 @@ class RevolverGamePlugin(Star):
             await client.set_group_ban(
                 group_id=int(event.get_group_id()),
                 user_id=user_id,
-                duration=60,
+                duration=random.randint(60, 3000),  # 修改括号内的数字即可改变随机时间
                 self_id=int(event.get_self_id())
             )
         except Exception as e:
