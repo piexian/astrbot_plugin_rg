@@ -1,8 +1,4 @@
 plugin_config:
-  command_load: "装填"
-  command_shoot: "开枪"
-  command_misfire_on: "走火开"
-  command_misfire_off: "走火关"
   misfire_probability: 0.005
   default_misfire_switch: false
   ban_time_range:
