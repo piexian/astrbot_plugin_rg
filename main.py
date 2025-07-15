@@ -2,7 +2,7 @@ import asyncio
 import random
 import yaml
 import os
-from datetime import datetime, timedelta
+from datetime import datetime
 from astrbot.api.all import *
 from astrbot.api.event import MessageChain
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
