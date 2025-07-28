@@ -153,7 +153,7 @@ class RevolverGamePlugin(Star):
             try:
                 return int(parts[1])
             except ValueError:
-                return None
+                return Nones
         return 1
 
     async def load_bullets(self, event: AstrMessageEvent, x: int = 1):
@@ -166,14 +166,15 @@ class RevolverGamePlugin(Star):
         self._remove_timer_job(job_id)
 
         if group_state and 'chambers' in group_state and any(group_state['chambers']):
-            yield event.plain_result(f"{sender_nickname}，当前游戏还未结束，请先完成当前游戏。")
+            yield event.plain_result(f" 当前游戏还未结束，请先完成当前游戏。")
             return
+        
         if not group_state or 'chambers' not in group_state or not any(group_state['chambers']):
-            yield event.plain_result(f"{sender_nickname}，游戏已经结束，请重新 /装填 开始游戏。")
+            yield event.plain_result(f" 游戏已经结束，请重新 /装填 开始游戏。")
             return
 
         if x < 1 or x > 6:
-            yield event.plain_result(f"{sender_nickname}，装填的实弹数量必须在 1 到 6 之间，请重新输入。")
+            yield event.plain_result(f" 装填的实弹数量必须在 1 到 6 之间，请重新输入。")
             return
 
         chambers = [False] * 6
@@ -187,7 +188,7 @@ class RevolverGamePlugin(Star):
         }
         self.group_states[group_id] = group_state
 
-        yield event.plain_result(f"{sender_nickname} 装填了 {x} 发实弹到 6 弹匣的左轮手枪，输入 /开枪 开始游戏！")
+        yield event.plain_result(f" 装填了 {x} 发实弹到 6 弹匣的左轮手枪，输入 /开枪 开始游戏！")
         self.start_timer(event, group_id, 180)
 
     async def shoot(self, event: AstrMessageEvent):
@@ -200,7 +201,7 @@ class RevolverGamePlugin(Star):
         self._remove_timer_job(job_id)
 
         if not group_state or 'chambers' not in group_state:
-            yield event.plain_result(f"{sender_nickname}，枪里好像没有子弹呢，请先装填。")
+            yield event.plain_result(f" 枪里好像没有子弹呢，请先装填。")
             return
 
         client = event.bot
