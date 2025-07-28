@@ -168,10 +168,6 @@ class RevolverGamePlugin(Star):
         if group_state and 'chambers' in group_state and any(group_state['chambers']):
             yield event.plain_result(f" 当前游戏还未结束，请先完成当前游戏。")
             return
-        
-        if not group_state or 'chambers' not in group_state or not any(group_state['chambers']):
-            yield event.plain_result(f" 游戏已经结束，请重新 /装填 开始游戏。")
-            return
 
         if x < 1 or x > 6:
             yield event.plain_result(f" 装填的实弹数量必须在 1 到 6 之间，请重新输入。")
@@ -256,14 +252,18 @@ class RevolverGamePlugin(Star):
             self.timeout_callback,
             'date',
             run_date=run_time,
-            args=[group_id],
+            args=[group_id, event],
             id=job_id
         )
 
-    async def timeout_callback(self, group_id):
+    async def timeout_callback(self, group_id, event: AstrMessageEvent):
         """定时器超时，移除群游戏状态"""
         if group_id in self.group_states:
             del self.group_states[group_id]
+            group_state = self.group_states.get(group_id)
+            if not group_state or 'chambers' not in group_state or not any(group_state['chambers']):
+                yield event.plain_result(f" 游戏已经结束，请重新 /装填 开始游戏。")
+                return
 
     async def _ban_user(self, event: AstrMessageEvent, client, user_id):
         """禁言用户"""
