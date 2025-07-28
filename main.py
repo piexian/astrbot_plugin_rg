@@ -18,7 +18,7 @@ if not os.path.exists(PLUGIN_DIR):
 # 配置路径
 TEXTS_FILE = os.path.join(PLUGIN_DIR, 'revolver_game_texts.yml')
 
-@register("astrbot_plugin_rg", "zgojin, piexian", "1.4.1", "https://github.com/piexian/astrbot_plugin_rg")
+@register("astrbot_plugin_rg", "zgojin, piexian", "1.4.1", "https://github.com/piexian/astrbot_plugin_rg",config=True )
 class RevolverGamePlugin(Star):
     def __init__(self, context: Context, config: AstrBotConfig):
         super().__init__(context)
@@ -159,7 +159,7 @@ class RevolverGamePlugin(Star):
             try:
                 return int(parts[1])
             except ValueError:
-                return Nones
+                return None
         return 1
 
     async def load_bullets(self, event: AstrMessageEvent, x: int = 1):
