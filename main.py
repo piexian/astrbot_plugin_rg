@@ -20,16 +20,22 @@ TEXTS_FILE = os.path.join(PLUGIN_DIR, 'revolver_game_texts.yml')
 
 @register("astrbot_plugin_rg", "zgojin, piexian", "1.4.1", "https://github.com/piexian/astrbot_plugin_rg")
 class RevolverGamePlugin(Star):
-    def __init__(self, context: Context):
+    def __init__(self, context: Context, config: AstrBotConfig):
         super().__init__(context)
+        # 使用配置
+        self.config = {
+            'misfire_probability': config.get('misfire_probability', 0.005),
+            'game_timeout': config.get('game_timeout', 180),
+            'ban_duration_min': config.get('ban_duration', {}).get('min', 60),
+            'ban_duration_max': config.get('ban_duration', {}).get('max', 3000),
+            'max_bullets': config.get('max_bullets', 6)
+        }
         # 从 context 中获取配置
-        self.config = context.get_config()
+        self.context = context
         # 群游戏状态
         self.group_states = {}
         # 加载走火开关
         self.group_misfire_switches = self._load_misfire_switches()
-        # 走火概率
-        self.misfire_probability = 0.005
         # 群定时器开始时间
         self.group_timer_start_time = {}
         # 加载游戏文本
@@ -96,7 +102,7 @@ class RevolverGamePlugin(Star):
         elif not self.group_misfire_switches[group_id]:
             pass
         else:
-            if random.random() <= self.misfire_probability:
+            if random.random() <= self.config['misfire_probability']:
                 async for result in self._handle_misfire(event, group_id):
                     yield result
 
@@ -169,12 +175,12 @@ class RevolverGamePlugin(Star):
             yield event.plain_result(f" 当前游戏还未结束，请先完成当前游戏。")
             return
 
-        if x < 1 or x > 6:
-            yield event.plain_result(f" 装填的实弹数量必须在 1 到 6 之间，请重新输入。")
+        if x < 1 or x > self.config['max_bullets']:
+            yield event.plain_result(f" 装填的实弹数量必须在 1 到 {self.config['max_bullets']} 之间，请重新输入。")
             return
 
-        chambers = [False] * 6
-        positions = random.sample(range(6), x)
+        chambers = [False] * self.config['max_bullets']
+        positions = random.sample(range(self.config['max_bullets']), x)
         for pos in positions:
             chambers[pos] = True
 
@@ -184,8 +190,8 @@ class RevolverGamePlugin(Star):
         }
         self.group_states[group_id] = group_state
 
-        yield event.plain_result(f" 装填了 {x} 发实弹到 6 弹匣的左轮手枪，输入 /开枪 开始游戏！")
-        self.start_timer(event, group_id, 180)
+        yield event.plain_result(f" 装填了 {x} 发实弹到 {self.config['max_bullets']} 弹匣的左轮手枪，输入 /开枪 开始游戏！")
+        self.start_timer(event, group_id, self.config['game_timeout'])
 
     async def shoot(self, event: AstrMessageEvent):
         """射击操作，处理结果"""
@@ -201,7 +207,7 @@ class RevolverGamePlugin(Star):
             return
 
         client = event.bot
-        self.start_timer(event, group_id, 180)
+        self.start_timer(event, group_id, self.config['game_timeout'])
 
         chambers = group_state['chambers']
         current_index = group_state['current_chamber_index']
@@ -222,7 +228,7 @@ class RevolverGamePlugin(Star):
     async def _handle_real_shot(self, event: AstrMessageEvent, group_state, chambers, current_index, sender_nickname, client):
         """处理击中目标，更新状态并禁言用户"""
         chambers[current_index] = False
-        group_state['current_chamber_index'] = (current_index + 1) % 6
+        group_state['current_chamber_index'] = (current_index + 1) % self.config['max_bullets']
         trigger_desc = random.choice(self.texts.get('trigger_descriptions', []))
         user_reaction = random.choice(self.texts.get('user_reactions', [])).format(sender_nickname=sender_nickname)
         message = f"{trigger_desc}，{user_reaction}"
@@ -234,27 +240,13 @@ class RevolverGamePlugin(Star):
 
     async def _handle_empty_shot(self, event: AstrMessageEvent, group_state, chambers, current_index, sender_nickname):
         """处理未击中目标，更新状态"""
-        group_state['current_chamber_index'] = (current_index + 1) % 6
+        group_state['current_chamber_index'] = (current_index + 1) % self.config['max_bullets']
         miss_message = random.choice(self.texts.get('miss_messages', [])).format(sender_nickname=sender_nickname)
         try:
             yield event.plain_result(miss_message)
         except Exception as e:
             logger.error(f"Failed to handle empty shot: {e}")
 
-    def start_timer(self, event: AstrMessageEvent, group_id, seconds):
-        """启动群定时器"""
-        umo = event.unified_msg_origin
-        self.group_umo_mapping[group_id] = umo
-
-        run_time = datetime.datetime.now() + datetime.timedelta(seconds=seconds)
-        job_id = f"timeout_{group_id}"
-        self.scheduler.add_job(
-            self.timeout_callback,
-            'date',
-            run_date=run_time,
-            args=[group_id, event],
-            id=job_id
-        )
 
     async def timeout_callback(self, group_id, event: AstrMessageEvent):
         """定时器超时，移除群游戏状态"""
@@ -271,8 +263,7 @@ class RevolverGamePlugin(Star):
             await client.set_group_ban(
                 group_id=int(event.get_group_id()),
                 user_id=user_id,
-                duration=random.randint(60, 3000),  # 修改括号内的数字即可改变随机时间
-                self_id=int(event.get_self_id())
+                duration=random.randint(self.config['ban_duration_min'], self.config['ban_duration_max']), 
             )
         except Exception as e:
             logger.error(f"Failed to ban user: {e}")
@@ -282,4 +273,20 @@ class RevolverGamePlugin(Star):
         try:
             self.scheduler.remove_job(job_id)
         except Exception as e:
-            logger.error(f"Failed to remove timer job: {e}")
+            logger.debug(f"Timer job {job_id} not found or already removed")
+
+    def start_timer(self, event: AstrMessageEvent, group_id: int, timeout: int):
+        """启动定时器"""
+        job_id = f"timeout_{group_id}"
+        try:
+            self.scheduler.add_job(
+                self.timeout_callback,
+                'date',
+                run_date=datetime.datetime.now() + datetime.timedelta(seconds=timeout),
+                args=[group_id, event],
+                id=job_id,
+                replace_existing=True
+            )
+            logger.debug(f"Started timer for group {group_id} with timeout {timeout}s")
+        except Exception as e:
+            logger.error(f"Failed to start timer: {e}")

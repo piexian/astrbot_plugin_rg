@@ -1,0 +1,38 @@
+{
+  "misfire_probability": {
+    "description": "走火概率",
+    "type": "float",
+    "hint": "范围 0-1，建议设置较小的值，如 0.005",
+    "default": 0.005
+  },
+  "game_timeout": {
+    "description": "游戏超时时间(秒)",
+    "type": "int",
+    "hint": "超过此时间未操作会自动结束游戏",
+    "default": 180
+  },
+  "ban_duration": {
+    "description": "禁言时长设置",
+    "type": "object",
+    "items": {
+      "min": {
+        "description": "最小禁言时长(秒)",
+        "type": "int",
+        "default": 60,
+        "hint": "击中或走火后的最小禁言时间"
+      },
+      "max": {
+        "description": "最大禁言时长(秒)", 
+        "type": "int",
+        "default": 3000,
+        "hint": "击中或走火后的最大禁言时间"
+      }
+    }
+  },
+  "max_bullets": {
+    "description": "最大子弹数",
+    "type": "int",
+    "hint": "左轮手枪能装填的最大子弹数量",
+    "default": 6
+  }
+}
