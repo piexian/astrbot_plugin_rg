@@ -18,7 +18,7 @@ if not os.path.exists(PLUGIN_DIR):
 # 配置路径
 TEXTS_FILE = os.path.join(PLUGIN_DIR, 'revolver_game_texts.yml')
 
-@register("astrbot_plugin_rg", "zgojin, piexian", "1.4.1", "https://github.com/piexian/astrbot_plugin_rg")
+@register("astrbot_plugin_rg", "zgojin, piexian", "1.4.0", "https://github.com/piexian/astrbot_plugin_rg")
 class RevolverGamePlugin(Star):
     def __init__(self, context: Context):
         super().__init__(context)
@@ -72,7 +72,7 @@ class RevolverGamePlugin(Star):
             yaml.dump(texts, file, allow_unicode=True)
 
     @event_message_type(EventMessageType.ALL)
-    async def on_all_messages(self, event: AstrMessageEvent, *args, **kwargs):
+    async def on_all_messages(self, event: AstrMessageEvent):
         """处理所有消息"""
         group_id = self._get_group_id(event)
         is_private = not group_id  # 判断是否为私聊
@@ -166,7 +166,10 @@ class RevolverGamePlugin(Star):
         self._remove_timer_job(job_id)
 
         if group_state and 'chambers' in group_state and any(group_state['chambers']):
-            yield event.plain_result(f"{sender_nickname}，游戏还未结束，不能重新装填，请继续射击！")
+            yield event.plain_result(f"{sender_nickname}，当前游戏还未结束，请先完成当前游戏。")
+            return
+        if not group_state or 'chambers' not in group_state or not any(group_state['chambers']):
+            yield event.plain_result(f"{sender_nickname}，游戏已经结束，请重新 /装填 开始游戏。")
             return
 
         if x < 1 or x > 6:
@@ -197,7 +200,7 @@ class RevolverGamePlugin(Star):
         self._remove_timer_job(job_id)
 
         if not group_state or 'chambers' not in group_state:
-            yield event.plain_result(f"{sender_nickname}，枪里好像没有子弹呢，请先/装填。")
+            yield event.plain_result(f"{sender_nickname}，枪里好像没有子弹呢，请先装填。")
             return
 
         client = event.bot
@@ -217,7 +220,7 @@ class RevolverGamePlugin(Star):
         if remaining_bullets == 0:
             self._remove_timer_job(job_id)
             del self.group_states[group_id]
-            yield event.plain_result(f"{sender_nickname}，弹匣内的所有实弹都已射出，游戏结束。若想继续，可再次装填。")
+            yield event.plain_result(f"{sender_nickname}，弹匣内的所有实弹都已射出，游戏结束。若想继续，可再次 /装填。")
 
     async def _handle_real_shot(self, event: AstrMessageEvent, group_state, chambers, current_index, sender_nickname, client):
         """处理击中目标，更新状态并禁言用户"""
@@ -260,15 +263,6 @@ class RevolverGamePlugin(Star):
         """定时器超时，移除群游戏状态"""
         if group_id in self.group_states:
             del self.group_states[group_id]
-            if group_id in self.group_umo_mapping:
-                umo = self.group_umo_mapping[group_id]
-                message_result = umo.make_result()
-                message_result.chain = [Comp.Plain("游戏超时已结束，请输入/装填重新开始游戏。")]
-                try:
-                    yield message_result
-                except Exception as e:
-                    logger.error(f"Failed to send timeout message: {e}")
-                del self.group_umo_mapping[group_id]
 
     async def _ban_user(self, event: AstrMessageEvent, client, user_id):
         """禁言用户"""
