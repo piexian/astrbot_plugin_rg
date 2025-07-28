@@ -217,7 +217,7 @@ class RevolverGamePlugin(Star):
         if remaining_bullets == 0:
             self._remove_timer_job(job_id)
             del self.group_states[group_id]
-            yield event.plain_result(f"{sender_nickname}，弹匣内的所有实弹都已射出，游戏结束。若想继续，可再次 /装填。")
+            yield event.plain_result(f" 弹匣内的所有实弹都已射出，游戏结束。若想继续，可再次 /装填。")
 
     async def _handle_real_shot(self, event: AstrMessageEvent, group_state, chambers, current_index, sender_nickname, client):
         """处理击中目标，更新状态并禁言用户"""
