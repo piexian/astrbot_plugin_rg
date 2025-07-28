@@ -259,9 +259,10 @@ class RevolverGamePlugin(Star):
             del self.group_states[group_id]
             if group_id in self.group_umo_mapping:
                 umo = self.group_umo_mapping[group_id]
+                message_result = umo.make_result()
+                message_result.chain = [Comp.Plain("游戏超时已结束，请输入/装填重新开始游戏。")]
                 try:
-                    event = AstrMessageEvent(umo)
-                    await event.send_message("游戏超时已结束，请输入/装填重新开始游戏。")
+                    yield message_result
                 except Exception as e:
                     logger.error(f"Failed to send timeout message: {e}")
                 del self.group_umo_mapping[group_id]
