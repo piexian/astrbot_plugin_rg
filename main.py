@@ -1,10 +1,13 @@
+import asyncio
 import random
 import yaml
 import os
 import datetime
 from astrbot.api.all import *
+from astrbot.api.event import MessageChain
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from astrbot.api import logger
+import astrbot.api.message_components as Comp
 
 # 插件目录
 PLUGIN_DIR = os.path.join('data', 'plugins', 'astrbot_plugin_rg')
