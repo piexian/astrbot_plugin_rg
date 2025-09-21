@@ -13,11 +13,8 @@ import astrbot.api.message_components as Comp
 
 @register("astrbot_plugin_rg", "zgojin, piexian", "2.0.3", "https://github.com/piexian/astrbot_plugin_rg")
 class RevolverGame(Star):
-    """
-    A Russian Roulette game plugin where players can load a revolver and take turns shooting.
-    Features a passive "misfire" mechanic that can be enabled on a per-group basis.
-    """
-    def __init__(self, context: Context):
+
+    def __init__(self, context: Context, config=None):
         """
         Initializes the plugin instance.
         """
@@ -46,7 +43,7 @@ class RevolverGame(Star):
         self._load_game_settings()
         self._load_runtime_data()
 
-        self.scheduler = context.get_scheduler()
+        self.scheduler = context.bot.scheduler
         logger.info("Revolver Game plugin loaded successfully.")
 
     def _load_default_texts(self):
