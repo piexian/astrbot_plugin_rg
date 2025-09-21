@@ -43,7 +43,6 @@ class RevolverGame(Star):
         self._load_game_settings()
         self._load_runtime_data()
 
-        self.scheduler = context.bot.scheduler
         logger.info("Revolver Game plugin loaded successfully.")
 
     def _load_default_texts(self):
