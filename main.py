@@ -15,7 +15,7 @@ import json
 # Import modern AstrBot APIs
 import astrbot.api.star as star
 from astrbot.api.event import AstrMessageEvent
-from astrbot.api.config import AstrBotConfig
+from astrbot.core import AstrBotConfig
 from astrbot.api.filter import filter
 from astrbot.api.utils import get_astrbot_data_path
 from astrbot.api import logger
