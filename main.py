@@ -1,292 +1,342 @@
+"""
+AstrBot Plugin: Revolver Game (Russian Roulette)
+- A modernized version of the classic revolver game plugin.
+- Author: zgojin, piexian
+- Refactored by: Roo
+"""
+
 import asyncio
 import random
 import yaml
 import os
 import datetime
-from astrbot.api.all import *
-from astrbot.api.event import MessageChain
-from apscheduler.schedulers.asyncio import AsyncIOScheduler
+import json
+
+# Import modern AstrBot APIs
+import astrbot.api.star as star
+from astrbot.api.event import MessageEvent, MessageType
+from astrbot.api.config import AstrBotConfig
+from astrbot.api.filter import filter
+from astrbot.api.utils import get_astrbot_data_path
 from astrbot.api import logger
 import astrbot.api.message_components as Comp
 
-# 插件目录
-PLUGIN_DIR = os.path.join('data', 'plugins', 'astrbot_plugin_rg')
-# 确保插件目录存在
-if not os.path.exists(PLUGIN_DIR):
-    os.makedirs(PLUGIN_DIR)
+# Define the path for plugin's persistent data
+DATA_DIR = os.path.join(get_astrbot_data_path(), 'astrbot_plugin_rg')
+if not os.path.exists(DATA_DIR):
+    os.makedirs(DATA_DIR)
+RUNTIME_DATA_FILE = os.path.join(DATA_DIR, 'data.json')
 
-# 配置路径
-TEXTS_FILE = os.path.join(PLUGIN_DIR, 'revolver_game_texts.yml')
-
-@register("astrbot_plugin_rg", "zgojin, piexian", "1.4.1", "https://github.com/piexian/astrbot_plugin_rg",config=True )
-class RevolverGamePlugin(Star):
-    def __init__(self, context: Context, config: AstrBotConfig):
-        super().__init__(context)
-        # 使用配置
-        self.config = {
-            'misfire_probability': config.get('misfire_probability', 0.005),
-            'game_timeout': config.get('game_timeout', 180),
-            'ban_duration_min': config.get('ban_duration', {}).get('min', 60),
-            'ban_duration_max': config.get('ban_duration', {}).get('max', 3000),
-            'max_bullets': config.get('max_bullets', 6)
-        }
-        # 从 context 中获取配置
-        self.context = context
-        # 群游戏状态
-        self.group_states = {}
-        # 加载走火开关
-        self.group_misfire_switches = self._load_misfire_switches()
-        # 群定时器开始时间
-        self.group_timer_start_time = {}
-        # 加载游戏文本
-        self.texts = self._load_texts()
-        # 初始化定时器调度器
-        if not hasattr(context, 'scheduler'):
-            context.scheduler = AsyncIOScheduler()
-            context.scheduler.start()
-        self.scheduler = context.scheduler
-        # 群消息来源映射
-        self.group_umo_mapping = {}
-
-    def _load_texts(self):
-        """加载游戏文本，多编码尝试"""
-        if not hasattr(self, '_cached_texts'):
-            encodings = ['utf-8', 'gbk', 'gb2312']
-            for encoding in encodings:
-                try:
-                    with open(TEXTS_FILE, 'r', encoding=encoding) as file:
-                        self._cached_texts = yaml.safe_load(file)
-                        break
-                except UnicodeDecodeError:
-                    continue
-            else:
-                self._cached_texts = {}
-        return self._cached_texts
-
-    def _load_misfire_switches(self):
-        """从配置文件加载走火开关信息"""
-        texts = self._load_texts()
-        return texts.get('misfire_switches', {})
-
-    def _save_misfire_switches(self):
-        """保存走火开关信息到配置文件"""
-        texts = self._load_texts()
-        if 'misfire_switches' not in texts:
-            texts['misfire_switches'] = {}
-        texts['misfire_switches'].update(self.group_misfire_switches)
-        with open(TEXTS_FILE, 'w', encoding='utf-8') as file:
-            yaml.dump(texts, file, allow_unicode=True)
-
-    @event_message_type(EventMessageType.ALL)
-    async def on_all_messages(self, event: AstrMessageEvent):
-        """处理所有消息"""
-        group_id = self._get_group_id(event)
-        is_private = not group_id  # 判断是否为私聊
-        message_str = event.message_str.strip()
+class RevolverGame(star.Star):
+    """
+    A Russian Roulette game plugin where players can load a revolver and take turns shooting.
+    Features a passive "misfire" mechanic that can be enabled on a per-group basis.
+    """
+    def __init__(self, config: AstrBotConfig):
+        """
+        Initializes the plugin instance.
+        - Loads configuration from the GUI.
+        - Loads default and custom text resources.
+        - Loads persistent runtime data (e.g., misfire switch states).
+        """
+        self.config = config
+        self.texts = {}
+        self.default_texts = {}
         
-        if is_private:
-            valid_commands = ["走火开", "走火关", "装填", "开枪"]
-            if any(message_str.startswith(cmd) for cmd in valid_commands):
-                yield event.plain_result("该游戏仅限群聊中使用，请在群内游玩。")
-            # 直接返回，不对私聊消息进行任何其他处理
-            return
+        # Game parameters initialized with default values
+        self.misfire_probability = 0.005
+        self.min_ban_duration = 60
+        self.max_ban_duration = 3000
 
-        self._init_group_misfire_switch(group_id)
+        # Runtime state variables
+        self.group_states = {}  # Stores the state of ongoing games per group
+        self.group_misfire_switches = {}  # Stores the misfire switch state per group
 
-        if message_str == "走火开":
-            result = await self._handle_misfire_switch_on(event, group_id)
-            yield result
-        elif message_str == "走火关":
-            result = await self._handle_misfire_switch_off(event, group_id)
-            yield result
-        elif not self.group_misfire_switches[group_id]:
-            pass
-        else:
-            if random.random() <= self.config['misfire_probability']:
-                async for result in self._handle_misfire(event, group_id):
-                    yield result
+        # Perform initialization sequence
+        self._load_default_texts()
+        self._process_custom_texts()
+        self._load_game_settings()
+        self._load_runtime_data()
 
-        if message_str.startswith("装填"):
-            num_bullets = self._parse_bullet_count(message_str)
-            if num_bullets is None:
-                yield event.plain_result("你输入的装填子弹数量不是有效的整数，请重新输入。")
-            else:
-                async for result in self.load_bullets(event, num_bullets):
-                    yield result
-        elif message_str == "开枪":
-            async for result in self.shoot(event):
-                yield result
+        # Get the global scheduler for timed events
+        self.scheduler = star.global_scheduler
+        logger.info("Revolver Game plugin loaded successfully.")
 
-    def _get_group_id(self, event: AstrMessageEvent):
-        """获取群id"""
-        return event.message_obj.group_id if hasattr(event.message_obj, "group_id") else None
-
-    def _init_group_misfire_switch(self, group_id):
-        """初始化群走火开关"""
-        if group_id not in self.group_misfire_switches:
-            self.group_misfire_switches[group_id] = False
-
-    async def _handle_misfire_switch_on(self, event: AstrMessageEvent, group_id):
-        """开启群走火开关并保存信息"""
-        self.group_misfire_switches[group_id] = True
-        self._save_misfire_switches()
-        return event.plain_result("本群左轮手枪走火功能已开启！")
-
-    async def _handle_misfire_switch_off(self, event: AstrMessageEvent, group_id):
-        """关闭群走火开关并保存信息"""
-        self.group_misfire_switches[group_id] = False
-        self._save_misfire_switches()
-        return event.plain_result("本群左轮手枪走火功能已关闭！")
-
-    async def _handle_misfire(self, event: AstrMessageEvent, group_id):
-        """处理走火事件，禁言用户"""
-        sender_nickname = event.get_sender_name()
-        client = event.bot
-
-        misfire_desc = random.choice(self.texts.get('misfire_descriptions', []))
-        user_reaction = random.choice(self.texts.get('user_reactions', [])).format(sender_nickname=sender_nickname)
-        message = f"{misfire_desc} {user_reaction} 不幸被击中！"
+    def _load_default_texts(self):
+        """Loads the default game texts from the YAML file."""
         try:
-            yield event.plain_result(message)
+            # The resource file is expected to be in the same directory as this script
+            current_dir = os.path.dirname(__file__)
+            texts_file = os.path.join(current_dir, 'revolver_game_texts.yml')
+            with open(texts_file, 'r', encoding='utf-8') as f:
+                self.default_texts = yaml.safe_load(f)
         except Exception as e:
-            logger.error(f"Failed to handle misfire: {e}")
-        await self._ban_user(event, client, int(event.get_sender_id()))
+            logger.error(f"Failed to load default texts from revolver_game_texts.yml: {e}")
+            # Provide a minimal fallback in case the file is missing
+            self.default_texts = {
+                'misfire_descriptions': ['The gun misfired!'],
+                'user_reactions': ['{sender_nickname} was hit!'],
+                'trigger_descriptions': ['BANG!'],
+                'miss_messages': ['Click. An empty chamber.']
+            }
 
-    def _parse_bullet_count(self, message_str):
-        """解析装填子弹数量"""
-        parts = message_str.split()
-        if len(parts) > 1:
-            try:
-                return int(parts[1])
-            except ValueError:
-                return None
-        return 1
+    def _process_custom_texts(self):
+        """
+        Processes custom texts from the config.
+        Uses default texts as a fallback if custom texts are not provided.
+        """
+        custom_texts_config = self.config.get('custom_texts', {})
+        for key, default_value in self.default_texts.items():
+            # misfire_switches is runtime data and should be ignored here
+            if key == 'misfire_switches':
+                continue
+            
+            user_text = custom_texts_config.get(key, "").strip()
+            if user_text:
+                # Use user-provided text, split by lines
+                self.texts[key] = user_text.splitlines()
+            else:
+                # Fallback to default text
+                self.texts[key] = default_value
 
-    async def load_bullets(self, event: AstrMessageEvent, x: int = 1):
-        """装填子弹，检查并启动定时器"""
-        sender_nickname = event.get_sender_name()
-        group_id = event.message_obj.group_id
-        group_state = self.group_states.get(group_id)
+    def _load_game_settings(self):
+        """Loads core game parameters from the config."""
+        game_settings = self.config.get('game_settings', {})
+        self.misfire_probability = game_settings.get('misfire_probability', 0.005)
+        self.min_ban_duration = game_settings.get('min_ban_duration', 60)
+        self.max_ban_duration = game_settings.get('max_ban_duration', 3000)
 
-        job_id = f"timeout_{group_id}"
-        self._remove_timer_job(job_id)
+    def _load_runtime_data(self):
+        """Loads persistent runtime data from the data.json file."""
+        try:
+            if os.path.exists(RUNTIME_DATA_FILE):
+                with open(RUNTIME_DATA_FILE, 'r', encoding='utf-8') as f:
+                    data = json.load(f)
+                    # Ensure keys are strings, as JSON keys are always strings
+                    self.group_misfire_switches = data.get('group_misfire_switches', {})
+        except Exception as e:
+            logger.error(f"Failed to load runtime data: {e}")
+            self.group_misfire_switches = {}
 
-        if group_state and 'chambers' in group_state and any(group_state['chambers']):
-            yield event.plain_result(f" 当前游戏还未结束，请先完成当前游戏。")
-            return
+    def _save_runtime_data(self):
+        """Saves persistent runtime data to the data.json file."""
+        try:
+            data = {
+                'group_misfire_switches': self.group_misfire_switches
+            }
+            with open(RUNTIME_DATA_FILE, 'w', encoding='utf-8') as f:
+                json.dump(data, f, ensure_ascii=False, indent=4)
+        except Exception as e:
+            logger.error(f"Failed to save runtime data: {e}")
 
-        if x < 1 or x > self.config['max_bullets']:
-            yield event.plain_result(f" 装填的实弹数量必须在 1 到 {self.config['max_bullets']} 之间，请重新输入。")
-            return
+    def terminate(self):
+        """
+        Called when the plugin is being unloaded.
+        Ensures all runtime data is saved.
+        """
+        logger.info("Saving Revolver Game plugin data...")
+        self._save_runtime_data()
+        logger.info("Revolver Game plugin data saved.")
 
-        chambers = [False] * self.config['max_bullets']
-        positions = random.sample(range(self.config['max_bullets']), x)
+    # ----------------------------------------------------------------
+    # |                                                              |
+    # |                 Command Handlers & Game Logic                |
+    # |                                                              |
+    # ----------------------------------------------------------------
+
+    @filter.command_group("rg", "左轮游戏")
+    async def rg_group(self, event: MessageEvent):
+        """The main command group for the Revolver Game."""
+        pass
+
+    @rg_group.command_group("switch", "开关")
+    async def rg_switch_group(self, event: MessageEvent):
+        """Manages the misfire feature switch."""
+        pass
+
+    @rg_switch_group.command("on", "开启")
+    @filter.message_type(MessageType.GROUP)
+    async def rg_switch_on(self, event: MessageEvent):
+        """Enables the passive misfire feature for the current group."""
+        if not event.is_admin:
+            return Comp.text("Sorry, only group administrators can use this command.")
+
+        group_id = str(event.message.group_id)
+        self.group_misfire_switches[group_id] = True
+        self._save_runtime_data()
+        return Comp.text("The revolver misfire feature has been ENABLED for this group.")
+
+    @rg_switch_group.command("off", "关闭")
+    @filter.message_type(MessageType.GROUP)
+    async def rg_switch_off(self, event: MessageEvent):
+        """Disables the passive misfire feature for the current group."""
+        if not event.is_admin:
+            return Comp.text("Sorry, only group administrators can use this command.")
+
+        group_id = str(event.message.group_id)
+        self.group_misfire_switches[group_id] = False
+        self._save_runtime_data()
+        return Comp.text("The revolver misfire feature has been DISABLED for this group.")
+
+    @rg_group.command("load", "装填")
+    @filter.message_type(MessageType.GROUP)
+    async def rg_load(self, event: MessageEvent, bullets: int = 1):
+        """
+        Loads the revolver to start a new game.
+        Usage: /rg load [1-6]
+        """
+        group_id = str(event.message.group_id)
+        sender_nickname = event.message.sender.nickname
+        
+        if group_id in self.group_states:
+            return Comp.text(f"{sender_nickname}, the game is already in progress. Please continue shooting!")
+
+        if not 1 <= bullets <= 6:
+            return Comp.text(f"{sender_nickname}, the number of bullets must be between 1 and 6.")
+
+        chambers = [False] * 6
+        positions = random.sample(range(6), bullets)
         for pos in positions:
             chambers[pos] = True
-
-        group_state = {
+        
+        self.group_states[group_id] = {
             'chambers': chambers,
             'current_chamber_index': 0
         }
-        self.group_states[group_id] = group_state
 
-        yield event.plain_result(f" 装填了 {x} 发实弹到 {self.config['max_bullets']} 弹匣的左轮手枪，输入 /开枪 开始游戏！")
-        self.start_timer(event, group_id, self.config['game_timeout'])
+        self._start_timeout_timer(group_id, 180)  # 3-minute timeout
 
-    async def shoot(self, event: AstrMessageEvent):
-        """射击操作，处理结果"""
-        sender_nickname = event.get_sender_name()
-        group_id = event.message_obj.group_id
+        return Comp.text(f"{sender_nickname} has loaded {bullets} live round(s) into the 6-chamber revolver. Type /rg shoot to play!")
+
+    @rg_group.command("shoot", "开枪")
+    @filter.message_type(MessageType.GROUP)
+    async def rg_shoot(self, event: MessageEvent):
+        """Fires the revolver."""
+        group_id = str(event.message.group_id)
+        sender_nickname = event.message.sender.nickname
+
         group_state = self.group_states.get(group_id)
+        if not group_state:
+            return Comp.text(f"{sender_nickname}, the gun isn't loaded. Please load it first.")
 
-        job_id = f"timeout_{group_id}"
-        self._remove_timer_job(job_id)
-
-        if not group_state or 'chambers' not in group_state:
-            yield event.plain_result(f" 枪里好像没有子弹呢，请先装填。")
-            return
-
-        client = event.bot
-        self.start_timer(event, group_id, self.config['game_timeout'])
+        self._start_timeout_timer(group_id, 180)  # Reset timeout on each shot
 
         chambers = group_state['chambers']
         current_index = group_state['current_chamber_index']
 
         if chambers[current_index]:
-            async for result in self._handle_real_shot(event, group_state, chambers, current_index, sender_nickname, client):
-                yield result
+            await self._handle_hit(event, group_state)
         else:
-            async for result in self._handle_empty_shot(event, group_state, chambers, current_index, sender_nickname):
-                yield result
+            await self._handle_miss(event, group_state)
+        
+        if sum(group_state['chambers']) == 0:
+            self._clear_game_state(group_id)
+            await event.reply(Comp.text("All live rounds have been fired. The game is over. Load again to play another round."))
 
-        remaining_bullets = sum(group_state['chambers'])
-        if remaining_bullets == 0:
-            self._remove_timer_job(job_id)
-            del self.group_states[group_id]
-            yield event.plain_result(f" 弹匣内的所有实弹都已射出，游戏结束。若想继续，可再次 /装填。")
+    # ----------------------------------------------------------------
+    # |                                                              |
+    # |                  Passive Misfire Listener                    |
+    # |                                                              |
+    # ----------------------------------------------------------------
 
-    async def _handle_real_shot(self, event: AstrMessageEvent, group_state, chambers, current_index, sender_nickname, client):
-        """处理击中目标，更新状态并禁言用户"""
-        chambers[current_index] = False
-        group_state['current_chamber_index'] = (current_index + 1) % self.config['max_bullets']
+    @filter.on_message(priority=100)
+    @filter.message_type(MessageType.GROUP)
+    async def on_group_message(self, event: MessageEvent):
+        """
+        Listens to all group messages for a chance of a passive misfire.
+        """
+        if event.is_self:
+            return
+
+        group_id = str(event.message.group_id)
+        
+        if self.group_misfire_switches.get(group_id, False):
+            if random.random() <= self.misfire_probability:
+                await self._trigger_misfire(event)
+
+    # ----------------------------------------------------------------
+    # |                                                              |
+    # |                     Helper & Logic Methods                   |
+    # |                                                              |
+    # ----------------------------------------------------------------
+
+    async def _ban_user(self, event: MessageEvent) -> Comp.Text | None:
+        """
+        Bans the user for a random duration defined in the config.
+        Returns a message component if the ban fails, otherwise None.
+        """
+        try:
+            duration = random.randint(self.min_ban_duration, self.max_ban_duration)
+            await event.bot.ban_group_member(
+                group_id=event.message.group_id,
+                user_id=event.message.sender.user_id,
+                duration=duration
+            )
+        except Exception as e:
+            logger.error(f"Failed to ban user {event.message.sender.user_id}: {e}")
+            return Comp.text(f"Oops, I was supposed to ban {event.message.sender.nickname}, but I don't have the required permissions!")
+        return None
+
+    async def _trigger_misfire(self, event: MessageEvent):
+        """Handles the misfire event by sending a message and banning the user."""
+        sender_nickname = event.message.sender.nickname
+        
+        misfire_desc = random.choice(self.texts.get('misfire_descriptions', []))
+        user_reaction = random.choice(self.texts.get('user_reactions', [])).format(sender_nickname=sender_nickname)
+        message = f"{misfire_desc} {user_reaction} was unfortunately hit!"
+        
+        await event.reply(Comp.text(message))
+        
+        ban_result = await self._ban_user(event)
+        if ban_result:
+            await event.reply(ban_result)
+
+    async def _handle_hit(self, event: MessageEvent, group_state: dict):
+        """Handles a successful shot (hitting a live round)."""
+        sender_nickname = event.message.sender.nickname
+        
+        group_state['chambers'][group_state['current_chamber_index']] = False
+        group_state['current_chamber_index'] = (group_state['current_chamber_index'] + 1) % 6
+
         trigger_desc = random.choice(self.texts.get('trigger_descriptions', []))
         user_reaction = random.choice(self.texts.get('user_reactions', [])).format(sender_nickname=sender_nickname)
-        message = f"{trigger_desc}，{user_reaction}"
-        try:
-            yield event.plain_result(message)
-        except Exception as e:
-            logger.error(f"Failed to handle real shot: {e}")
-        await self._ban_user(event, client, int(event.get_sender_id()))
+        message = f"{trigger_desc}, {user_reaction}"
+        await event.reply(Comp.text(message))
 
-    async def _handle_empty_shot(self, event: AstrMessageEvent, group_state, chambers, current_index, sender_nickname):
-        """处理未击中目标，更新状态"""
-        group_state['current_chamber_index'] = (current_index + 1) % self.config['max_bullets']
+        ban_result = await self._ban_user(event)
+        if ban_result:
+            await event.reply(ban_result)
+
+    async def _handle_miss(self, event: MessageEvent, group_state: dict):
+        """Handles a miss (hitting an empty chamber)."""
+        sender_nickname = event.message.sender.nickname
+        
+        group_state['current_chamber_index'] = (group_state['current_chamber_index'] + 1) % 6
+
         miss_message = random.choice(self.texts.get('miss_messages', [])).format(sender_nickname=sender_nickname)
-        try:
-            yield event.plain_result(miss_message)
-        except Exception as e:
-            logger.error(f"Failed to handle empty shot: {e}")
+        await event.reply(Comp.text(miss_message))
 
+    def _start_timeout_timer(self, group_id: str, seconds: int):
+        """Starts or resets the game's inactivity timeout timer."""
+        job_id = f"rg_timeout_{group_id}"
+        if self.scheduler.get_job(job_id):
+            self.scheduler.remove_job(job_id)
+        
+        run_time = datetime.datetime.now() + datetime.timedelta(seconds=seconds)
+        self.scheduler.add_job(
+            self._clear_game_state,
+            'date',
+            run_date=run_time,
+            args=[group_id, "(Timeout)"],
+            id=job_id
+        )
 
-    async def timeout_callback(self, group_id, event: AstrMessageEvent):
-        """定时器超时，移除群游戏状态"""
+    def _clear_game_state(self, group_id: str, reason: str = ""):
+        """Clears the game state and timer for a specific group."""
+        job_id = f"rg_timeout_{group_id}"
+        if self.scheduler.get_job(job_id):
+            self.scheduler.remove_job(job_id)
+        
         if group_id in self.group_states:
             del self.group_states[group_id]
-            group_state = self.group_states.get(group_id)
-            if not group_state or 'chambers' not in group_state or not any(group_state['chambers']):
-                yield event.plain_result(f" 游戏已经结束，请重新 /装填 开始游戏。")
-                return
-
-    async def _ban_user(self, event: AstrMessageEvent, client, user_id):
-        """禁言用户"""
-        try:
-            await client.set_group_ban(
-                group_id=int(event.get_group_id()),
-                user_id=user_id,
-                duration=random.randint(self.config['ban_duration_min'], self.config['ban_duration_max']), 
-            )
-        except Exception as e:
-            logger.error(f"Failed to ban user: {e}")
-
-    def _remove_timer_job(self, job_id):
-        """移除定时器任务"""
-        try:
-            self.scheduler.remove_job(job_id)
-        except Exception as e:
-            logger.debug(f"Timer job {job_id} not found or already removed")
-
-    def start_timer(self, event: AstrMessageEvent, group_id: int, timeout: int):
-        """启动定时器"""
-        job_id = f"timeout_{group_id}"
-        try:
-            self.scheduler.add_job(
-                self.timeout_callback,
-                'date',
-                run_date=datetime.datetime.now() + datetime.timedelta(seconds=timeout),
-                args=[group_id, event],
-                id=job_id,
-                replace_existing=True
-            )
-            logger.debug(f"Started timer for group {group_id} with timeout {timeout}s")
-        except Exception as e:
-            logger.error(f"Failed to start timer: {e}")
+            logger.info(f"Revolver game state for group {group_id} has been cleared {reason}.")

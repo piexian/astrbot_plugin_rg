@@ -1,38 +1,54 @@
 {
-  "misfire_probability": {
-    "description": "走火概率",
-    "type": "float",
-    "hint": "范围 0-1，建议设置较小的值，如 0.005",
-    "default": 0.005
-  },
-  "game_timeout": {
-    "description": "游戏超时时间(秒)",
-    "type": "int",
-    "hint": "超过此时间未操作会自动结束游戏",
-    "default": 180
-  },
-  "ban_duration": {
-    "description": "禁言时长设置",
+  "game_settings": {
+    "description": "核心玩法设置",
     "type": "object",
     "items": {
-      "min": {
-        "description": "最小禁言时长(秒)",
-        "type": "int",
-        "default": 60,
-        "hint": "击中或走火后的最小禁言时间"
+      "misfire_probability": {
+        "description": "每次发言时的走火概率",
+        "type": "float",
+        "hint": "这是一个0到1之间的小数，例如0.005代表0.5%的概率。",
+        "default": 0.005
       },
-      "max": {
-        "description": "最大禁言时长(秒)", 
+      "min_ban_duration": {
+        "description": "禁言的最短时间（秒）",
         "type": "int",
-        "default": 3000,
-        "hint": "击中或走火后的最大禁言时间"
+        "hint": "设置一个合理的最小值。",
+        "default": 60
+      },
+      "max_ban_duration": {
+        "description": "禁言的最长时间（秒）",
+        "type": "int",
+        "hint": "设置一个合理的上限。",
+        "default": 3000
       }
     }
   },
-  "max_bullets": {
-    "description": "最大子弹数",
-    "type": "int",
-    "hint": "左轮手枪能装填的最大子弹数量",
-    "default": 6
+  "custom_texts": {
+    "description": "自定义游戏提示文本（每个类别下一行一个）。如果留空，将使用插件自带的默认文本。",
+    "type": "object",
+    "items": {
+      "misfire_descriptions": {
+        "description": "走火时的场景描述",
+        "type": "text",
+        "default": ""
+      },
+      "user_reactions": {
+        "description": "玩家被击中时的反应描述",
+        "type": "text",
+        "hint": "使用 {sender_nickname} 作为玩家昵称的占位符。",
+        "default": ""
+      },
+      "trigger_descriptions": {
+        "description": "成功开枪（击中）时的场景描述",
+        "type": "text",
+        "default": ""
+      },
+      "miss_messages": {
+        "description": "开枪未击中（空枪）时的场景描述",
+        "type": "text",
+        "hint": "使用 {sender_nickname} 作为玩家昵称的占位符。",
+        "default": ""
+      }
+    }
   }
 }
