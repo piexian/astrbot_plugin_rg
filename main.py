@@ -46,6 +46,10 @@ class RevolverGame(star.Star):
         # Game parameters initialized with default values
         self.misfire_probability = 0.005
         self.min_ban_duration = 60
+        # Get the global scheduler for timed events
+        self.scheduler = star.global_scheduler
+        logger.critical("<<<<< Revolver Game V2.0.0 IS LOADING >>>>>")
+        logger.info("Revolver Game plugin loaded successfully.")
         self.max_ban_duration = 3000
 
         # Runtime state variables
