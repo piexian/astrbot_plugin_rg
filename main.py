@@ -12,20 +12,13 @@ import os
 import datetime
 import json
 
-# Import modern AstrBot APIs according to the latest official documentation
+# Import modern AstrBot APIs according to the latest official documentation and provided examples
 from astrbot.api.event import filter, AstrMessageEvent
-from astrbot.api.star import Context, Star, register
-from astrbot.api.utils import get_astrbot_data_path
+from astrbot.api.star import Context, Star, register, StarTools
 from astrbot.api import logger
 import astrbot.api.message_components as Comp
 
-# Define the path for plugin's persistent data
-DATA_DIR = os.path.join(get_astrbot_data_path(), 'astrbot_plugin_rg')
-if not os.path.exists(DATA_DIR):
-    os.makedirs(DATA_DIR)
-RUNTIME_DATA_FILE = os.path.join(DATA_DIR, 'data.json')
-
-@register("astrbot_plugin_rg", "zgojin, piexian", "2.0.2", "https://github.com/piexian/astrbot_plugin_rg")
+@register("astrbot_plugin_rg", "zgojin, piexian (Refactored by Roo)", "2.0.3", "A modernized revolver game plugin with GUI config.")
 class RevolverGame(Star):
     """
     A Russian Roulette game plugin where players can load a revolver and take turns shooting.
@@ -35,6 +28,14 @@ class RevolverGame(Star):
         """
         Initializes the plugin instance.
         """
+        # --- Data Path Setup ---
+        # Use StarTools to get the correct data directory for this plugin
+        self.data_dir = StarTools.get_data_dir("astrbot_plugin_rg")
+        if not os.path.exists(self.data_dir):
+            os.makedirs(self.data_dir)
+        self.runtime_data_file = os.path.join(self.data_dir, 'data.json')
+        
+        # --- Configuration and State ---
         self.config = context.get_config()
         self.texts = {}
         self.default_texts = {}
@@ -46,6 +47,7 @@ class RevolverGame(Star):
         self.group_states = {}
         self.group_misfire_switches = {}
 
+        # --- Initialization ---
         self._load_default_texts()
         self._process_custom_texts()
         self._load_game_settings()
@@ -92,8 +94,8 @@ class RevolverGame(Star):
     def _load_runtime_data(self):
         """Loads persistent runtime data from the data.json file."""
         try:
-            if os.path.exists(RUNTIME_DATA_FILE):
-                with open(RUNTIME_DATA_FILE, 'r', encoding='utf-8') as f:
+            if os.path.exists(self.runtime_data_file):
+                with open(self.runtime_data_file, 'r', encoding='utf-8') as f:
                     data = json.load(f)
                     self.group_misfire_switches = data.get('group_misfire_switches', {})
         except Exception as e:
@@ -104,7 +106,7 @@ class RevolverGame(Star):
         """Saves persistent runtime data to the data.json file."""
         try:
             data = {'group_misfire_switches': self.group_misfire_switches}
-            with open(RUNTIME_DATA_FILE, 'w', encoding='utf-8') as f:
+            with open(self.runtime_data_file, 'w', encoding='utf-8') as f:
                 json.dump(data, f, ensure_ascii=False, indent=4)
         except Exception as e:
             logger.error(f"Failed to save runtime data: {e}")
