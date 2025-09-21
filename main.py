@@ -14,7 +14,7 @@ import json
 
 # Import modern AstrBot APIs
 import astrbot.api.star as star
-from astrbot.api.event import MessageEvent, MessageType
+from astrbot.api.event import AstrMessageEvent, MessageType
 from astrbot.api.config import AstrBotConfig
 from astrbot.api.filter import filter
 from astrbot.api.utils import get_astrbot_data_path
@@ -48,7 +48,6 @@ class RevolverGame(star.Star):
         self.min_ban_duration = 60
         # Get the global scheduler for timed events
         self.scheduler = star.global_scheduler
-        logger.critical("<<<<< Revolver Game V2.0.0 IS LOADING >>>>>")
         logger.info("Revolver Game plugin loaded successfully.")
         self.max_ban_duration = 3000
 
@@ -148,55 +147,42 @@ class RevolverGame(star.Star):
     # |                                                              |
     # ----------------------------------------------------------------
 
-    @filter.command_group("rg", "左轮游戏")
-    async def rg_group(self, event: MessageEvent):
-        """The main command group for the Revolver Game."""
-        pass
-
-    @rg_group.command_group("switch", "开关")
-    async def rg_switch_group(self, event: MessageEvent):
-        """Manages the misfire feature switch."""
-        pass
-
-    @rg_switch_group.command("on", "开启")
+    @filter.command("走火开", "misfire on")
     @filter.message_type(MessageType.GROUP)
-    async def rg_switch_on(self, event: MessageEvent):
-        """Enables the passive misfire feature for the current group."""
+    async def cmd_misfire_on(self, event: AstrMessageEvent):
+        """开启本群的走火功能"""
         if not event.is_admin:
-            return Comp.text("Sorry, only group administrators can use this command.")
+            return Comp.text("抱歉，只有群管理员才能操作哦。")
 
         group_id = str(event.message.group_id)
         self.group_misfire_switches[group_id] = True
         self._save_runtime_data()
-        return Comp.text("The revolver misfire feature has been ENABLED for this group.")
+        return Comp.text("本群左轮手枪走火功能已开启！")
 
-    @rg_switch_group.command("off", "关闭")
+    @filter.command("走火关", "misfire off")
     @filter.message_type(MessageType.GROUP)
-    async def rg_switch_off(self, event: MessageEvent):
-        """Disables the passive misfire feature for the current group."""
+    async def cmd_misfire_off(self, event: AstrMessageEvent):
+        """关闭本群的走火功能"""
         if not event.is_admin:
-            return Comp.text("Sorry, only group administrators can use this command.")
+            return Comp.text("抱歉，只有群管理员才能操作哦。")
 
         group_id = str(event.message.group_id)
         self.group_misfire_switches[group_id] = False
         self._save_runtime_data()
-        return Comp.text("The revolver misfire feature has been DISABLED for this group.")
+        return Comp.text("本群左轮手枪走火功能已关闭！")
 
-    @rg_group.command("load", "装填")
+    @filter.command("装填", "load")
     @filter.message_type(MessageType.GROUP)
-    async def rg_load(self, event: MessageEvent, bullets: int = 1):
-        """
-        Loads the revolver to start a new game.
-        Usage: /rg load [1-6]
-        """
+    async def cmd_load(self, event: AstrMessageEvent, bullets: int = 1):
+        """装填子弹开始一轮游戏。可以指定装填1-6发子弹。"""
         group_id = str(event.message.group_id)
         sender_nickname = event.message.sender.nickname
         
         if group_id in self.group_states:
-            return Comp.text(f"{sender_nickname}, the game is already in progress. Please continue shooting!")
+            return Comp.text(f"{sender_nickname}，游戏还未结束，不能重新装填，请继续射击！")
 
         if not 1 <= bullets <= 6:
-            return Comp.text(f"{sender_nickname}, the number of bullets must be between 1 and 6.")
+            return Comp.text(f"{sender_nickname}，装填的实弹数量必须在 1 到 6 之间，请重新输入。")
 
         chambers = [False] * 6
         positions = random.sample(range(6), bullets)
@@ -208,14 +194,14 @@ class RevolverGame(star.Star):
             'current_chamber_index': 0
         }
 
-        self._start_timeout_timer(group_id, 180)  # 3-minute timeout
+        self._start_timeout_timer(group_id, 180)  # 3分钟超时
 
-        return Comp.text(f"{sender_nickname} has loaded {bullets} live round(s) into the 6-chamber revolver. Type /rg shoot to play!")
+        return Comp.text(f"{sender_nickname} 装填了 {bullets} 发实弹到 6 弹匣的左轮手枪，输入 /开枪 开始游戏！")
 
-    @rg_group.command("shoot", "开枪")
+    @filter.command("开枪", "shoot")
     @filter.message_type(MessageType.GROUP)
-    async def rg_shoot(self, event: MessageEvent):
-        """Fires the revolver."""
+    async def cmd_shoot(self, event: AstrMessageEvent):
+        """开枪！"""
         group_id = str(event.message.group_id)
         sender_nickname = event.message.sender.nickname
 
@@ -245,7 +231,7 @@ class RevolverGame(star.Star):
 
     @filter.on_message(priority=100)
     @filter.message_type(MessageType.GROUP)
-    async def on_group_message(self, event: MessageEvent):
+    async def on_group_message(self, event: AstrMessageEvent):
         """
         Listens to all group messages for a chance of a passive misfire.
         """
@@ -264,7 +250,7 @@ class RevolverGame(star.Star):
     # |                                                              |
     # ----------------------------------------------------------------
 
-    async def _ban_user(self, event: MessageEvent) -> Comp.Text | None:
+    async def _ban_user(self, event: AstrMessageEvent) -> Comp.Text | None:
         """
         Bans the user for a random duration defined in the config.
         Returns a message component if the ban fails, otherwise None.
@@ -281,7 +267,7 @@ class RevolverGame(star.Star):
             return Comp.text(f"Oops, I was supposed to ban {event.message.sender.nickname}, but I don't have the required permissions!")
         return None
 
-    async def _trigger_misfire(self, event: MessageEvent):
+    async def _trigger_misfire(self, event: AstrMessageEvent):
         """Handles the misfire event by sending a message and banning the user."""
         sender_nickname = event.message.sender.nickname
         
@@ -295,7 +281,7 @@ class RevolverGame(star.Star):
         if ban_result:
             await event.reply(ban_result)
 
-    async def _handle_hit(self, event: MessageEvent, group_state: dict):
+    async def _handle_hit(self, event: AstrMessageEvent, group_state: dict):
         """Handles a successful shot (hitting a live round)."""
         sender_nickname = event.message.sender.nickname
         
@@ -311,7 +297,7 @@ class RevolverGame(star.Star):
         if ban_result:
             await event.reply(ban_result)
 
-    async def _handle_miss(self, event: MessageEvent, group_state: dict):
+    async def _handle_miss(self, event: AstrMessageEvent, group_state: dict):
         """Handles a miss (hitting an empty chamber)."""
         sender_nickname = event.message.sender.nickname
         
