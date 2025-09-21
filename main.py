@@ -190,7 +190,7 @@ class RevolverGame(Star):
 
     # --- Helper & Logic Methods ---
 
-    async def _ban_user(self, event: AstrMessageEvent) -> Comp.Text | None:
+    async def _ban_user(self, event: AstrMessageEvent):
         """Bans the user for a random duration."""
         try:
             duration = random.randint(self.min_ban_duration, self.max_ban_duration)
