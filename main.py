@@ -25,7 +25,7 @@ if not os.path.exists(DATA_DIR):
     os.makedirs(DATA_DIR)
 RUNTIME_DATA_FILE = os.path.join(DATA_DIR, 'data.json')
 
-@register("astrbot_plugin_rg", "zgojin, piexian (Refactored by Roo)", "2.0.2", "A modernized revolver game plugin with GUI config.")
+@register("astrbot_plugin_rg", "zgojin, piexian", "2.0.2", "https://github.com/piexian/astrbot_plugin_rg")
 class RevolverGame(Star):
     """
     A Russian Roulette game plugin where players can load a revolver and take turns shooting.
