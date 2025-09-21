@@ -1,10 +1,3 @@
-"""
-AstrBot Plugin: Revolver Game (Russian Roulette)
-- A modernized version of the classic revolver game plugin, compliant with the latest official docs.
-- Author: zgojin, piexian
-- Refactored by: Roo
-"""
-
 import asyncio
 import random
 import yaml
@@ -18,7 +11,7 @@ from astrbot.api.star import Context, Star, register, StarTools
 from astrbot.api import logger
 import astrbot.api.message_components as Comp
 
-@register("astrbot_plugin_rg", "zgojin, piexian (Refactored by Roo)", "2.0.3", "A modernized revolver game plugin with GUI config.")
+@register("astrbot_plugin_rg", "zgojin, piexian", "2.0.3", "https://github.com/piexian/astrbot_plugin_rg")
 class RevolverGame(Star):
     """
     A Russian Roulette game plugin where players can load a revolver and take turns shooting.
@@ -64,13 +57,9 @@ class RevolverGame(Star):
             with open(texts_file, 'r', encoding='utf-8') as f:
                 self.default_texts = yaml.safe_load(f)
         except Exception as e:
-            logger.error(f"Failed to load default texts: {e}")
-            self.default_texts = {
-                'misfire_descriptions': ['The gun misfired!'],
-                'user_reactions': ['{sender_nickname} was hit!'],
-                'trigger_descriptions': ['BANG!'],
-                'miss_messages': ['Click. An empty chamber.']
-            }
+            logger.error(f"Failed to load default texts from revolver_game_texts.yml: {e}")
+            # If the file fails to load, re-raise the exception to prevent the plugin from starting in a broken state.
+            raise e
 
     def _process_custom_texts(self):
         """Processes custom texts from the config, with fallback to defaults."""
@@ -181,13 +170,20 @@ class RevolverGame(Star):
 
     # --- Passive Misfire Listener ---
 
-    @filter.on_message(priority=100)
-    @filter.event_message_type(filter.EventMessageType.GROUP_MESSAGE)
-    async def on_group_message(self, event: AstrMessageEvent):
-        """Listens to all group messages for a chance of a passive misfire."""
+    @filter.event_message_type(filter.EventMessageType.ALL, priority=100)
+    async def on_any_message(self, event: AstrMessageEvent):
+        """Listens to all messages for a chance of a passive misfire."""
+        # Ensure this only runs for group messages and not private messages
+        if not hasattr(event.message, "group_id") or not event.message.group_id:
+            return
+
+        # Ignore messages from the bot itself
         if event.is_self:
             return
+
         group_id = str(event.message.group_id)
+        
+        # Check if the misfire feature is enabled for this group
         if self.group_misfire_switches.get(group_id, False):
             if random.random() <= self.misfire_probability:
                 await self._trigger_misfire(event)

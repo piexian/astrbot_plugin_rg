@@ -1,5 +1,5 @@
 name: astrbot_plugin_rg
-description: "群聊左轮手枪游戏插件。经过现代化重构，支持 GUI 配置、新的指令系统和被动走火功能。"
-version: 2.0.0
-author: zgojin, piexian (Refactored by Roo)
+description: "群聊左轮手枪游戏插件。经过现代化重构，支持 GUI 配置和被动走火功能。"
+version: 2.0.3
+author: zgojin, piexian
 repo: https://github.com/piexian/astrbot_plugin_rg
