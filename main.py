@@ -14,12 +14,14 @@ import json
 
 # Import modern AstrBot APIs
 import astrbot.api.star as star
-from astrbot.api.event import AstrMessageEvent, MessageType
+from astrbot.api.event import AstrMessageEvent
 from astrbot.api.config import AstrBotConfig
 from astrbot.api.filter import filter
 from astrbot.api.utils import get_astrbot_data_path
 from astrbot.api import logger
 import astrbot.api.message_components as Comp
+# Import the correct EventMessageType from the core module
+from astrbot.core.star.filter.event_message_type import EventMessageType
 
 # Define the path for plugin's persistent data
 DATA_DIR = os.path.join(get_astrbot_data_path(), 'astrbot_plugin_rg')
@@ -27,12 +29,13 @@ if not os.path.exists(DATA_DIR):
     os.makedirs(DATA_DIR)
 RUNTIME_DATA_FILE = os.path.join(DATA_DIR, 'data.json')
 
+@star.register("astrbot_plugin_rg", "zgojin, piexian (Refactored by Roo)", "2.0.0", "A modernized revolver game plugin.")
 class RevolverGame(star.Star):
     """
     A Russian Roulette game plugin where players can load a revolver and take turns shooting.
     Features a passive "misfire" mechanic that can be enabled on a per-group basis.
     """
-    def __init__(self, config: AstrBotConfig):
+    def __init__(self, context: star.Context, config: AstrBotConfig):
         """
         Initializes the plugin instance.
         - Loads configuration from the GUI.
@@ -46,9 +49,6 @@ class RevolverGame(star.Star):
         # Game parameters initialized with default values
         self.misfire_probability = 0.005
         self.min_ban_duration = 60
-        # Get the global scheduler for timed events
-        self.scheduler = star.global_scheduler
-        logger.info("Revolver Game plugin loaded successfully.")
         self.max_ban_duration = 3000
 
         # Runtime state variables
@@ -148,7 +148,7 @@ class RevolverGame(star.Star):
     # ----------------------------------------------------------------
 
     @filter.command("走火开", "misfire on")
-    @filter.message_type(MessageType.GROUP)
+    @filter.event_message_type(EventMessageType.GROUP_MESSAGE)
     async def cmd_misfire_on(self, event: AstrMessageEvent):
         """开启本群的走火功能"""
         if not event.is_admin:
@@ -160,7 +160,7 @@ class RevolverGame(star.Star):
         return Comp.text("本群左轮手枪走火功能已开启！")
 
     @filter.command("走火关", "misfire off")
-    @filter.message_type(MessageType.GROUP)
+    @filter.event_message_type(EventMessageType.GROUP_MESSAGE)
     async def cmd_misfire_off(self, event: AstrMessageEvent):
         """关闭本群的走火功能"""
         if not event.is_admin:
@@ -172,7 +172,7 @@ class RevolverGame(star.Star):
         return Comp.text("本群左轮手枪走火功能已关闭！")
 
     @filter.command("装填", "load")
-    @filter.message_type(MessageType.GROUP)
+    @filter.event_message_type(EventMessageType.GROUP_MESSAGE)
     async def cmd_load(self, event: AstrMessageEvent, bullets: int = 1):
         """装填子弹开始一轮游戏。可以指定装填1-6发子弹。"""
         group_id = str(event.message.group_id)
@@ -199,7 +199,7 @@ class RevolverGame(star.Star):
         return Comp.text(f"{sender_nickname} 装填了 {bullets} 发实弹到 6 弹匣的左轮手枪，输入 /开枪 开始游戏！")
 
     @filter.command("开枪", "shoot")
-    @filter.message_type(MessageType.GROUP)
+    @filter.event_message_type(EventMessageType.GROUP_MESSAGE)
     async def cmd_shoot(self, event: AstrMessageEvent):
         """开枪！"""
         group_id = str(event.message.group_id)
@@ -207,7 +207,7 @@ class RevolverGame(star.Star):
 
         group_state = self.group_states.get(group_id)
         if not group_state:
-            return Comp.text(f"{sender_nickname}, the gun isn't loaded. Please load it first.")
+            return Comp.text(f"{sender_nickname}，枪里好像没有子弹呢，请先装填。")
 
         self._start_timeout_timer(group_id, 180)  # Reset timeout on each shot
 
@@ -230,7 +230,7 @@ class RevolverGame(star.Star):
     # ----------------------------------------------------------------
 
     @filter.on_message(priority=100)
-    @filter.message_type(MessageType.GROUP)
+    @filter.event_message_type(EventMessageType.GROUP_MESSAGE)
     async def on_group_message(self, event: AstrMessageEvent):
         """
         Listens to all group messages for a chance of a passive misfire.
