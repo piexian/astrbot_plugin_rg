@@ -1,5 +1,5 @@
 name: astrbot_plugin_rg
 description: 群聊左轮手枪游戏插件，玩家可以在群聊中进行左轮手枪射击游戏，支持随机走火事件。
-version: v1.4.0
+version: v1.4.1
 author: zgojin, piexian
 repo: https://github.com/piexian/astrbot_plugin_rg 
