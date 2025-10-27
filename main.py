@@ -1,13 +1,22 @@
-import asyncio
 import random
 import yaml
 import os
 import datetime
-from astrbot.api.all import *
-from astrbot.api.event import MessageChain
+import shutil
+from typing import Any, Dict, List
+
+from apscheduler.jobstores.base import JobLookupError
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
+
+from astrbot.api.all import (
+    AstrMessageEvent,
+    Context,
+    EventMessageType,
+    Star,
+    event_message_type,
+    register,
+)
 from astrbot.api import logger
-import astrbot.api.message_components as Comp
 
 # 插件目录
 PLUGIN_DIR = os.path.join('data', 'plugins', 'astrbot_plugin_rg')
@@ -17,6 +26,14 @@ if not os.path.exists(PLUGIN_DIR):
 
 # 配置路径
 TEXTS_FILE = os.path.join(PLUGIN_DIR, 'revolver_game_texts.yml')
+DEFAULT_TEXTS_FILE = os.path.join(os.path.dirname(__file__), 'revolver_game_texts.yml')
+
+DEFAULT_FALLBACK_TEXTS: Dict[str, str] = {
+    'misfire_descriptions': '手枪突然走火。',
+    'user_reactions': '{sender_nickname} 吓得不轻。',
+    'trigger_descriptions': '扳机被扣下。',
+    'miss_messages': '{sender_nickname} 幸运地打出了一发空弹。'
+}
 
 @register("astrbot_plugin_rg", "zgojin, piexian", "1.4.0", "https://github.com/piexian/astrbot_plugin_rg")
 class RevolverGamePlugin(Star):
@@ -25,13 +42,11 @@ class RevolverGamePlugin(Star):
         # 从 context 中获取配置
         self.config = context.get_config()
         # 群游戏状态
-        self.group_states = {}
+        self.group_states: Dict[int, Dict[str, Any]] = {}
         # 加载走火开关
         self.group_misfire_switches = self._load_misfire_switches()
         # 走火概率
         self.misfire_probability = 0.005
-        # 群定时器开始时间
-        self.group_timer_start_time = {}
         # 加载游戏文本
         self.texts = self._load_texts()
         # 初始化定时器调度器
@@ -40,27 +55,68 @@ class RevolverGamePlugin(Star):
             context.scheduler.start()
         self.scheduler = context.scheduler
         # 群消息来源映射
-        self.group_umo_mapping = {}
+        self.group_umo_mapping: Dict[int, Any] = {}
 
     def _load_texts(self):
         """加载游戏文本，多编码尝试"""
         if not hasattr(self, '_cached_texts'):
+            self._ensure_texts_file()
             encodings = ['utf-8', 'gbk', 'gb2312']
             for encoding in encodings:
                 try:
                     with open(TEXTS_FILE, 'r', encoding=encoding) as file:
-                        self._cached_texts = yaml.safe_load(file)
+                        loaded = yaml.safe_load(file) or {}
+                        self._cached_texts = loaded
                         break
                 except UnicodeDecodeError:
                     continue
+                except FileNotFoundError:
+                    break
             else:
                 self._cached_texts = {}
+
+            if not getattr(self, '_cached_texts', None):
+                self._cached_texts = self._load_default_texts()
         return self._cached_texts
+
+    def _load_default_texts(self) -> Dict[str, Any]:
+        if not hasattr(self, '_default_texts'):
+            try:
+                with open(DEFAULT_TEXTS_FILE, 'r', encoding='utf-8') as file:
+                    self._default_texts = yaml.safe_load(file) or {}
+            except FileNotFoundError:
+                self._default_texts = {}
+        return self._default_texts
+
+    def _ensure_texts_file(self):
+        if os.path.exists(TEXTS_FILE):
+            return
+        os.makedirs(PLUGIN_DIR, exist_ok=True)
+        default_texts = self._load_default_texts()
+        if os.path.exists(DEFAULT_TEXTS_FILE):
+            shutil.copy(DEFAULT_TEXTS_FILE, TEXTS_FILE)
+        else:
+            with open(TEXTS_FILE, 'w', encoding='utf-8') as file:
+                yaml.dump(default_texts, file, allow_unicode=True)
+        self._cached_texts = default_texts.copy()
+
+    def _get_text_list(self, key: str) -> List[str]:
+        texts = self._load_texts()
+        values = texts.get(key)
+        if not values:
+            values = self._load_default_texts().get(key, [])
+        return values or []
+
+    def _choose_text(self, key: str) -> str:
+        choices = self._get_text_list(key)
+        if choices:
+            return random.choice(choices)
+        return DEFAULT_FALLBACK_TEXTS.get(key, "")
 
     def _load_misfire_switches(self):
         """从配置文件加载走火开关信息"""
         texts = self._load_texts()
-        return texts.get('misfire_switches', {})
+        return texts.get('misfire_switches', {}) or {}
 
     def _save_misfire_switches(self):
         """保存走火开关信息到配置文件"""
@@ -70,6 +126,7 @@ class RevolverGamePlugin(Star):
         texts['misfire_switches'].update(self.group_misfire_switches)
         with open(TEXTS_FILE, 'w', encoding='utf-8') as file:
             yaml.dump(texts, file, allow_unicode=True)
+        self._cached_texts = texts
 
     @event_message_type(EventMessageType.ALL)
     async def on_all_messages(self, event: AstrMessageEvent):
@@ -137,9 +194,9 @@ class RevolverGamePlugin(Star):
         sender_nickname = event.get_sender_name()
         client = event.bot
 
-        misfire_desc = random.choice(self.texts.get('misfire_descriptions', []))
-        user_reaction = random.choice(self.texts.get('user_reactions', [])).format(sender_nickname=sender_nickname)
-        message = f"{misfire_desc} {user_reaction} 不幸被击中！"
+        misfire_desc = self._choose_text('misfire_descriptions')
+        user_reaction = self._choose_text('user_reactions').format(sender_nickname=sender_nickname)
+        message = f"{misfire_desc} {user_reaction} 不幸被击中！".strip()
         try:
             yield event.plain_result(message)
         except Exception as e:
@@ -223,9 +280,9 @@ class RevolverGamePlugin(Star):
         """处理击中目标，更新状态并禁言用户"""
         chambers[current_index] = False
         group_state['current_chamber_index'] = (current_index + 1) % 6
-        trigger_desc = random.choice(self.texts.get('trigger_descriptions', []))
-        user_reaction = random.choice(self.texts.get('user_reactions', [])).format(sender_nickname=sender_nickname)
-        message = f"{trigger_desc}，{user_reaction}"
+        trigger_desc = self._choose_text('trigger_descriptions')
+        user_reaction = self._choose_text('user_reactions').format(sender_nickname=sender_nickname)
+        message = f"{trigger_desc}，{user_reaction}".strip('，').strip()
         try:
             yield event.plain_result(message)
         except Exception as e:
@@ -235,7 +292,7 @@ class RevolverGamePlugin(Star):
     async def _handle_empty_shot(self, event: AstrMessageEvent, group_state, chambers, current_index, sender_nickname):
         """处理未击中目标，更新状态"""
         group_state['current_chamber_index'] = (current_index + 1) % 6
-        miss_message = random.choice(self.texts.get('miss_messages', [])).format(sender_nickname=sender_nickname)
+        miss_message = self._choose_text('miss_messages').format(sender_nickname=sender_nickname).strip()
         try:
             yield event.plain_result(miss_message)
         except Exception as e:
@@ -253,13 +310,22 @@ class RevolverGamePlugin(Star):
             'date',
             run_date=run_time,
             args=[group_id],
-            id=job_id
+            id=job_id,
+            replace_existing=True
         )
 
     async def timeout_callback(self, group_id):
         """定时器超时，移除群游戏状态"""
         if group_id in self.group_states:
             del self.group_states[group_id]
+        umo = self.group_umo_mapping.pop(group_id, None)
+        if not umo:
+            return
+        timeout_message = "长时间未操作，当前左轮手枪游戏已自动结束。"
+        try:
+            await self.context.send_message(umo, timeout_message)
+        except Exception as e:
+            logger.error(f"Failed to send timeout message: {e}")
 
     async def _ban_user(self, event: AstrMessageEvent, client, user_id):
         """禁言用户"""
@@ -277,5 +343,7 @@ class RevolverGamePlugin(Star):
         """移除定时器任务"""
         try:
             self.scheduler.remove_job(job_id)
+        except JobLookupError:
+            return
         except Exception as e:
             logger.error(f"Failed to remove timer job: {e}")
