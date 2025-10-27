@@ -1,0 +1,32 @@
+{
+  "misfire_probability": {
+    "description": "随机走火触发概率，范围 0.0-1.0",
+    "type": "float",
+    "default": 0.005,
+    "hint": "设置为 0 关闭随机走火，设置为 1 始终走火"
+  },
+  "timeout_seconds": {
+    "description": "装填后等待开枪的超时时间（秒）",
+    "type": "int",
+    "default": 60,
+    "hint": "超过该时长未开枪则自动结束游戏"
+  },
+  "min_ban_seconds": {
+    "description": "最短禁言时长（秒）",
+    "type": "int",
+    "default": 60,
+    "hint": "随机禁言时长的下限"
+  },
+  "max_ban_seconds": {
+    "description": "最长禁言时长（秒）",
+    "type": "int",
+    "default": 300,
+    "hint": "随机禁言时长的上限"
+  },
+  "misfire_enabled_by_default": {
+    "description": "新群默认是否开启随机走火",
+    "type": "bool",
+    "default": false,
+    "hint": "开启后新群第一次使用会自动启用走火"
+  }
+}
